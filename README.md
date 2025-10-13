@@ -160,7 +160,8 @@ docker build -t bods2loki .
 docker run -d \
   --name bods2loki \
   -e BODS_API_KEY=your_bods_api_key_here \
-  -e BODS_LINE_REFS=49x,7 \
+  -e BODS_DATASET_ID=your_bods_dataset_id \
+  -e BODS_LINE_REFS=your_bus_lines_reference_numbers \
   -e BODS_LOKI_URL=http://your-loki-instance \
   -e OTEL_TRACING_ENABLED=true \
   -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=localhost:4318 \
@@ -175,7 +176,8 @@ Pull from Github Container Registry:
 docker run -d \
   --name bods2loki \
   -e BODS_API_KEY=your_bods_api_key_here \
-  -e BODS_LINE_REFS=49x,7 \
+  -e BODS_DATASET_ID=your_bods_dataset_id \
+  -e BODS_LINE_REFS=your_bus_lines_reference_numbers \
   -e BODS_LOKI_URL=http://your-loki-instance \
   -e OTEL_TRACING_ENABLED=true \
   -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=localhost:4318 \
