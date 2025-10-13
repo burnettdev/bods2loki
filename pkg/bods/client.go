@@ -14,12 +14,13 @@ import (
 )
 
 const (
-	BaseURL = "https://data.bus-data.dft.gov.uk/api/v1/datafeed/699/"
+	BaseURLTemplate = "https://data.bus-data.dft.gov.uk/api/v1/datafeed/%s/"
 )
 
 type Client struct {
 	httpClient *http.Client
 	apiKey     string
+	baseURL    string
 	tracer     trace.Tracer
 }
 
@@ -29,16 +30,19 @@ type BusData struct {
 	LineRef   string
 }
 
-func NewClient(apiKey string) *Client {
+func NewClient(apiKey, datasetID string) *Client {
 	// Create HTTP client with OpenTelemetry instrumentation
 	client := &http.Client{
 		Transport: otelhttp.NewTransport(http.DefaultTransport),
 		Timeout:   30 * time.Second,
 	}
 
+	baseURL := fmt.Sprintf(BaseURLTemplate, datasetID)
+
 	return &Client{
 		httpClient: client,
 		apiKey:     apiKey,
+		baseURL:    baseURL,
 		tracer:     otel.Tracer("bods-client"),
 	}
 }
@@ -47,13 +51,13 @@ func (c *Client) FetchBusData(ctx context.Context, lineRef string) (*BusData, er
 	ctx, span := c.tracer.Start(ctx, "bods.fetch_bus_data",
 		trace.WithAttributes(
 			attribute.String("line_ref", lineRef),
-			attribute.String("api.endpoint", BaseURL),
+			attribute.String("api.endpoint", c.baseURL),
 		),
 	)
 	defer span.End()
 
 	// Build URL with parameters
-	url := fmt.Sprintf("%s?api_key=%s&lineRef=%s", BaseURL, c.apiKey, lineRef)
+	url := fmt.Sprintf("%s?api_key=%s&lineRef=%s", c.baseURL, c.apiKey, lineRef)
 
 	span.SetAttributes(
 		attribute.String("http.url", url),

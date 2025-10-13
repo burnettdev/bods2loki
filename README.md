@@ -13,7 +13,8 @@ Create a `.env` file in the project root with the following variables:
 
 ```bash
 BODS_API_KEY=your_bods_api_key_here
-BODS_LINE_REFS=49x,7
+BODS_DATASET_ID=your_bods_dataset_id
+BODS_LINE_REFS=bus_line_references
 BODS_LOKI_URL=http://your-loki-instance
 
 # Optional: For Grafana Cloud Logs authentication
@@ -88,6 +89,39 @@ When tracing is enabled, the application will create spans for:
 - **HTTP requests**: Individual HTTP requests to Loki (`loki.http_request`)
 
 Each span includes relevant attributes like HTTP status codes, durations, vehicle counts, and error information.
+
+### Pyroscope Profiling Configuration
+
+The application supports continuous profiling using Pyroscope. This is optional and disabled by default.
+
+#### Environment Variables
+
+- `PYROSCOPE_PROFILING_ENABLED`: Set to `true` or `1` to enable profiling
+- `PYROSCOPE_SERVER_ADDRESS`: Pyroscope server address (default: `http://localhost:4040`)
+- `PYROSCOPE_APPLICATION_NAME`: Application name for profiling (default: `bods2loki`)
+- `PYROSCOPE_BASIC_AUTH_USER`: Basic auth username
+- `PYROSCOPE_BASIC_AUTH_PASSWORD`: Basic auth password
+
+#### Profile Types
+
+When profiling is enabled, the application will collect:
+
+- **CPU profiles**: CPU usage and hotspots
+- **Memory profiles**: Memory allocation and usage patterns
+- **Goroutine profiles**: Goroutine counts and stack traces
+- **Mutex profiles**: Lock contention analysis
+- **Block profiles**: Blocking operation analysis
+
+#### Authentication
+
+For servers requiring authentication, use basic auth:
+
+```bash
+PYROSCOPE_PROFILING_ENABLED=true
+PYROSCOPE_SERVER_ADDRESS=https://your-pyroscope-server.com
+PYROSCOPE_BASIC_AUTH_USER=your_username
+PYROSCOPE_BASIC_AUTH_PASSWORD=your_password
+```
 
 ## Installation
 

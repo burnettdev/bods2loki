@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bods2loki/pkg/pipeline"
+	"bods2loki/pkg/profiling"
 	"bods2loki/pkg/tracing"
 )
 
@@ -20,6 +21,7 @@ func main() {
 	var (
 		dryRun       = flag.Bool("dry-run", false, "Print data to stdout instead of sending to Loki")
 		apiKey       = flag.String("api-key", getEnv("BODS_API_KEY", ""), "BODS API key (required)")
+		datasetID    = flag.String("dataset-id", getEnv("BODS_DATASET_ID", "699"), "BODS dataset ID")
 		lineRefs     = flag.String("line-refs", getEnv("BODS_LINE_REFS", "49x"), "Bus line references, comma-separated")
 		lokiURL      = flag.String("loki-url", getEnv("BODS_LOKI_URL", "http://localhost:3100"), "Grafana Loki URL")
 		lokiUser     = flag.String("loki-user", getEnv("BODS_LOKI_USER", ""), "Loki username (for Grafana Cloud authentication)")
@@ -37,6 +39,7 @@ func main() {
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nEnvironment Variables:\n")
 		fmt.Fprintf(os.Stderr, "  BODS_API_KEY      - Your BODS API key (required)\n")
+		fmt.Fprintf(os.Stderr, "  BODS_DATASET_ID   - BODS dataset ID (default: 699)\n")
 		fmt.Fprintf(os.Stderr, "  BODS_LINE_REFS    - Bus line references, comma-separated (default: 49x)\n")
 		fmt.Fprintf(os.Stderr, "  BODS_LOKI_URL     - Loki URL (default: http://localhost:3100)\n")
 		fmt.Fprintf(os.Stderr, "  BODS_LOKI_USER    - Loki username (for Grafana Cloud)\n")
@@ -81,10 +84,18 @@ func main() {
 	}
 	defer shutdownTracing()
 
+	// Initialize profiling
+	shutdownProfiling, err := profiling.InitProfiling()
+	if err != nil {
+		log.Fatalf("Failed to initialize profiling: %v", err)
+	}
+	defer shutdownProfiling()
+
 	// Create pipeline configuration
 	config := pipeline.Config{
 		DryRun:       *dryRun,
 		APIKey:       *apiKey,
+		DatasetID:    *datasetID,
 		LineRefs:     lineRefsList,
 		LokiURL:      *lokiURL,
 		LokiUser:     *lokiUser,
@@ -152,4 +163,3 @@ func getEnv(key, defaultValue string) string {
 	}
 	return defaultValue
 }
-

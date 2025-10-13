@@ -1,7 +1,7 @@
 services:
   bods2loki:
-    build: .
     container_name: bods2loki
+    image: ghcr.io/burnettdev/bods2loki:main
     restart: unless-stopped
     environment:
       # BODS API Configuration
