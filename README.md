@@ -2,6 +2,8 @@
 
 🚌 A Go service that fetches live bus tracking data from the UK Department for Transport's Bus Open Data Service (BODS) and streams it to Grafana Loki for real-time monitoring and analysis.
 
+A live demo showing some Bristol bus routes can be found [here.](https://elfordo.grafana.net/public-dashboards/2c542d2643314f34b82fcf7942787443)
+
 ## Prerequisites
 
 - BODS API key (get from [data.bus-data.dft.gov.uk](https://data.bus-data.dft.gov.uk))
