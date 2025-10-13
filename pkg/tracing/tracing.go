@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 
 	"go.opentelemetry.io/otel"
@@ -51,11 +52,24 @@ func InitTracing() (func(), error) {
 		return func() {}, nil
 	}
 
-	// Create resource
+	// Create resource with Go-specific attributes
 	res, err := resource.New(context.Background(),
 		resource.WithAttributes(
+			// Service identification
 			semconv.ServiceName("bods2loki"),
 			semconv.ServiceVersion("1.0.0"),
+			semconv.ServiceNamespaceKey.String("bus-tracking"),
+
+			// Process and runtime information
+			semconv.ProcessRuntimeName("go"),
+			semconv.ProcessRuntimeVersion(runtime.Version()),
+			semconv.ProcessRuntimeDescription("Go runtime"),
+			semconv.ProcessPID(os.Getpid()),
+
+			// Telemetry SDK information
+			semconv.TelemetrySDKName("opentelemetry"),
+			semconv.TelemetrySDKLanguageGo,
+			semconv.TelemetrySDKVersion("1.21.0"),
 		),
 	)
 	if err != nil {
