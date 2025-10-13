@@ -1,0 +1,698 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_GRAFANACLOUD-ELFORDO-LOGS",
+      "label": "grafanacloud-elfordo-logs",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "loki",
+      "pluginName": "Loki"
+    }
+  ],
+  "__elements": {},
+  "__requires": [
+    {
+      "type": "panel",
+      "id": "geomap",
+      "name": "Geomap",
+      "version": ""
+    },
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "12.3.0-18462628762"
+    },
+    {
+      "type": "datasource",
+      "id": "loki",
+      "name": "Loki",
+      "version": "12.3.0-18462628762"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "text",
+      "name": "Text",
+      "version": ""
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_GRAFANACLOUD-ELFORDO-LOGS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 18,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "basemap": {
+          "config": {},
+          "layer-tooltip": false,
+          "name": "Layer 0",
+          "noRepeat": false,
+          "type": "osm-standard"
+        },
+        "controls": {
+          "mouseWheelZoom": true,
+          "showAttribution": true,
+          "showDebug": false,
+          "showMeasure": false,
+          "showScale": false,
+          "showZoom": true
+        },
+        "layers": [
+          {
+            "config": {
+              "border": 3,
+              "color": "rgb(200, 200, 200)",
+              "crop": false,
+              "kind": "anchored",
+              "radius": 30,
+              "shadow": false,
+              "src": "bus_image (last)"
+            },
+            "layer-tooltip": true,
+            "location": {
+              "latitude": "latitude (lastNotNull)",
+              "longitude": "longitude (lastNotNull)",
+              "mode": "coords"
+            },
+            "name": "Layer 1",
+            "tooltip": true,
+            "type": "photos"
+          }
+        ],
+        "tooltip": {
+          "mode": "none"
+        },
+        "view": {
+          "allLayers": true,
+          "id": "coords",
+          "lat": 51.478576,
+          "lon": -2.535704,
+          "noRepeat": false,
+          "zoom": 12.86
+        }
+      },
+      "pluginVersion": "12.3.0-18462628762",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_GRAFANACLOUD-ELFORDO-LOGS}"
+          },
+          "direction": "backward",
+          "editorMode": "builder",
+          "expr": "{job=\"bods2loki\", line_ref=~\"$lineRef\"}",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Live Bus View",
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "delimiter": ",",
+            "source": "Line"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "tsNs",
+                "labelTypes",
+                "id",
+                "bus_image",
+                "destination_name",
+                "latitude",
+                "line_ref",
+                "longitude",
+                "origin_name",
+                "recorded_at_time",
+                "vehicle_ref"
+              ]
+            }
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "bus_image": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "destination_name": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "destination_ref": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "id": {
+                "aggregations": [
+                  "count"
+                ]
+              },
+              "latitude": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "line_ref": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "longitude": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "origin_name": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "origin_ref": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "vehicle_ref": {
+                "aggregations": [],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "bus_image (last)": false,
+              "destination_ref (last)": true,
+              "origin_ref (last)": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "destination_ref (last)": 5,
+              "latitude (lastNotNull)": 2,
+              "line_ref (lastNotNull)": 0,
+              "longitude (lastNotNull)": 3,
+              "origin_ref (last)": 4,
+              "vehicle_ref": 1
+            },
+            "renameByName": {
+              "destination_name (last)": "Destination",
+              "destination_ref (last)": "Destination",
+              "latitude (lastNotNull)": "Latitude",
+              "line_ref (lastNotNull)": "Bus Service",
+              "longitude (lastNotNull)": "Longitude",
+              "origin_name (lastNotNull)": "Origin",
+              "origin_ref (last)": "Origin",
+              "vehicle_ref": "Vehicle Reference"
+            }
+          }
+        }
+      ],
+      "type": "geomap"
+    },
+    {
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "🚌 **Brizzle Bus Tracker Overview**\n\nAlright, me babber! This dashboard keeps tabs on Bristol’s buses in real time, streaming live location data into Grafana Cloud Logs via [bods2loki](https://github.com/burnettdev/bods2loki) and visualising it on a GeoMap panel.\n\nEach bus’s latest position is plotted so you can spot who’s trundlin’ up **Staple Hill**, cruisin’ through **Emersons Green**, or waitin’ in traffic by the Centre.\n\n🚏 **Active buses** are the ones still on the move — if they’ve pinged in the last few minutes, they’ll show up in counts and maps.\n\nKeep an eye out for bunchin’, stoppin’, and the eternal mystery of where your number 49x’s got to — all updated quicker than you can say *“cheers, drive!”*\n",
+        "mode": "markdown"
+      },
+      "pluginVersion": "12.3.0-18462628762",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_GRAFANACLOUD-ELFORDO-LOGS}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "hideFrom": {
+              "viz": false
+            },
+            "inspect": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "7": {
+                  "color": "dark-red",
+                  "index": 1
+                },
+                "48": {
+                  "color": "red",
+                  "index": 3
+                },
+                "49": {
+                  "color": "semi-dark-yellow",
+                  "index": 4
+                },
+                "49x": {
+                  "color": "dark-green",
+                  "index": 0
+                },
+                "m3": {
+                  "color": "dark-purple",
+                  "index": 2
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Starting At"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 250
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Terminating At"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 250
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Service"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "enablePagination": false,
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Expected Starting Time"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.0-18462628762",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_GRAFANACLOUD-ELFORDO-LOGS}"
+          },
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "{job=\"bods2loki\", line_ref=~\"$lineRef\"} |= `` | json",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Bus Timetable",
+      "transformations": [
+        {
+          "id": "extractFields",
+          "options": {
+            "delimiter": ",",
+            "source": "Line"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "destination_aimed_arrival_time": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "destination_name": {
+                "aggregations": [
+                  "last"
+                ],
+                "operation": "aggregate"
+              },
+              "destination_ref": {
+                "aggregations": [
+                  "lastNotNull"
+                ]
+              },
+              "latitude": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "line_ref": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "longitude": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "origin_aimed_departure_time": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "origin_name": {
+                "aggregations": [
+                  "lastNotNull"
+                ],
+                "operation": "aggregate"
+              },
+              "vehicle_ref": {
+                "aggregations": [],
+                "operation": "groupby"
+              }
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Line": true,
+              "Time": true,
+              "bus_image": true,
+              "destination_ref": true,
+              "direction_ref": true,
+              "id": true,
+              "labelTypes": true,
+              "labels": true,
+              "operator_ref": true,
+              "origin_ref": true,
+              "recorded_at_time": true,
+              "timestamp": true,
+              "traceID": true,
+              "traceID (field)": true,
+              "tsNs": true,
+              "valid_until_time": true,
+              "vehicle_ref": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "destination_aimed_arrival_time (lastNotNull)": 4,
+              "destination_name (last)": 2,
+              "latitude (lastNotNull)": 5,
+              "line_ref (lastNotNull)": 0,
+              "longitude (lastNotNull)": 6,
+              "origin_aimed_departure_time (lastNotNull)": 3,
+              "origin_name (lastNotNull)": 1,
+              "vehicle_ref": 7
+            },
+            "renameByName": {
+              "destination_aimed_arrival_time": "Expected Termination Time",
+              "destination_aimed_arrival_time (lastNotNull)": "Expected Termination Time",
+              "destination_name": "Terminating At",
+              "destination_name (last)": "Terminating At",
+              "latitude": "Last Reported Latitude",
+              "latitude (lastNotNull)": "Last Reported Latitude",
+              "line_ref": "Bus Service",
+              "line_ref (lastNotNull)": "Service",
+              "longitude": "Last Reported Longtitude",
+              "longitude (lastNotNull)": "Last Reported Longitude",
+              "origin_aimed_departure_time": "Expected Starting Time",
+              "origin_aimed_departure_time (lastNotNull)": "Expected Starting Time",
+              "origin_name": "Starting At",
+              "origin_name (lastNotNull)": "Starting At"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "${DS_GRAFANACLOUD-ELFORDO-LOGS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 5,
+      "maxPerRow": 8,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0-18462628762",
+      "repeat": "lineRef",
+      "repeatDirection": "h",
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${DS_GRAFANACLOUD-ELFORDO-LOGS}"
+          },
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "count_over_time({service=\"bus-tracking\", line_ref=\"$lineRef\"}[$__auto])",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Buses on Route: $lineRef",
+      "type": "stat"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "allowCustomValue": false,
+        "current": {},
+        "datasource": {
+          "type": "loki",
+          "uid": "${DS_GRAFANACLOUD-ELFORDO-LOGS}"
+        },
+        "definition": "",
+        "includeAll": true,
+        "label": "Bus Service",
+        "multi": true,
+        "name": "lineRef",
+        "options": [],
+        "query": {
+          "label": "line_ref",
+          "refId": "LokiVariableQueryEditor-VariableQuery",
+          "stream": "",
+          "type": 1
+        },
+        "refresh": 1,
+        "regex": "",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "BODS Bus Tracking v1",
+  "uid": "bu4wgjc",
+  "version": 13,
+  "weekStart": "",
+  "id": null
+}
