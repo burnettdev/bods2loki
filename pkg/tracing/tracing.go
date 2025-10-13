@@ -58,7 +58,6 @@ func InitTracing() (func(), error) {
 			// Service identification
 			semconv.ServiceName("bods2loki"),
 			semconv.ServiceVersion("1.0.0"),
-			semconv.ServiceNamespaceKey.String("bus-tracking"),
 
 			// Process and runtime information
 			semconv.ProcessRuntimeName("go"),
