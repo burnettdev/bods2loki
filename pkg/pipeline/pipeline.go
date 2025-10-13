@@ -28,6 +28,7 @@ type Pipeline struct {
 type Config struct {
 	DryRun       bool
 	APIKey       string
+	DatasetID    string
 	LineRefs     []string
 	LokiURL      string
 	LokiUser     string
@@ -46,7 +47,7 @@ func New(config Config) (*Pipeline, error) {
 
 	pipeline := &Pipeline{
 		config:     config,
-		bodsClient: bods.NewClient(config.APIKey),
+		bodsClient: bods.NewClient(config.APIKey, config.DatasetID),
 		parser:     parser.NewXMLParser(),
 		tracer:     otel.Tracer("pipeline"),
 	}
