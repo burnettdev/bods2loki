@@ -1,0 +1,40 @@
+name: Snyk Container
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '17 1 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  snyk:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Snyk CLI
+      uses: snyk/actions/setup@master
+      with:
+        version: 'latest'  # or pin a specific version like '1.1020.0'
+
+
+    - name: Build Docker image
+      run: docker build -t burnettdev/bods2loki .
+
+    - name: Run Snyk container test and generate SARIF
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        SNYK_API: https://api.eu.snyk.io
+      run: |
+        snyk container test burnettdev/bods2loki \
+          --file=Dockerfile \
