@@ -233,22 +233,32 @@ func parseHeaders(headerStr string) map[string]string {
 
 	pairs := strings.Split(headerStr, ",")
 	for _, pair := range pairs {
-		if kv := strings.SplitN(strings.TrimSpace(pair), "=", 2); len(kv) == 2 {
-			headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+		pair = strings.TrimSpace(pair)
+		// Use Index instead of SplitN to preserve the full value after first =
+		if idx := strings.Index(pair, "="); idx > 0 {
+			key := strings.TrimSpace(pair[:idx])
+			value := pair[idx+1:] // Don't trim value - preserve exact content
+			headers[key] = value
+			slog.Debug("Parsed OTEL header", "key", key, "value_length", len(value))
 		}
 	}
 
 	return headers
 }
 
-// parseDuration parses a duration string, returning default on failure
+// parseDuration parses a duration string, returning default on failure.
+// Supports both Go duration format ("10s", "1m") and OTEL spec milliseconds ("10000").
 func parseDuration(s string, defaultVal time.Duration) time.Duration {
 	if s == "" {
 		return defaultVal
 	}
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return defaultVal
+	// Try parsing as Go duration first (e.g., "10s", "1m")
+	if d, err := time.ParseDuration(s); err == nil {
+		return d
 	}
-	return d
+	// Try parsing as milliseconds integer (OTEL spec format)
+	if ms, err := strconv.Atoi(s); err == nil {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return defaultVal
 }

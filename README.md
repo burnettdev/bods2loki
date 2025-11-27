@@ -149,8 +149,8 @@ The application supports metrics collection and export using OpenTelemetry. This
 **Base OTLP Configuration (applies to all signals unless overridden):**
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: Base URL for all signals (auto-appends `/v1/traces` and `/v1/metrics`)
 - `OTEL_EXPORTER_OTLP_PROTOCOL`: Transport protocol (`grpc`, `http/protobuf`, `http/json`). Default: `http/protobuf`
-- `OTEL_EXPORTER_OTLP_HEADERS`: Headers in `key1=value1,key2=value2` format
-- `OTEL_EXPORTER_OTLP_TIMEOUT`: Export timeout (default: `10s`)
+- `OTEL_EXPORTER_OTLP_HEADERS`: Headers in `key=value` format (multiple: `key1=value1,key2=value2`)
+- `OTEL_EXPORTER_OTLP_TIMEOUT`: Export timeout in milliseconds (default: `10000` = 10 seconds)
 - `OTEL_EXPORTER_OTLP_INSECURE`: Disable TLS (`true` for HTTP, `false` for HTTPS)
 - `OTEL_EXPORTER_OTLP_COMPRESSION`: Compression (`none`, `gzip`)
 
@@ -327,8 +327,8 @@ The `docker-compose.yml` passes the following environment variables from your `.
 **Shared OTEL Configuration:**
 - `OTEL_EXPORTER_OTLP_ENDPOINT` - Base endpoint (auto-appends signal paths)
 - `OTEL_EXPORTER_OTLP_PROTOCOL` - Protocol (`grpc`, `http/protobuf`, `http/json`)
-- `OTEL_EXPORTER_OTLP_HEADERS` - Shared headers
-- `OTEL_EXPORTER_OTLP_TIMEOUT` - Export timeout
+- `OTEL_EXPORTER_OTLP_HEADERS` - Shared headers (`key=value` format)
+- `OTEL_EXPORTER_OTLP_TIMEOUT` - Export timeout in milliseconds (default: `10000`)
 - `OTEL_EXPORTER_OTLP_COMPRESSION` - Compression (`none`, `gzip`)
 - `OTEL_EXPORTER_OTLP_INSECURE` - Disable TLS verification
 
