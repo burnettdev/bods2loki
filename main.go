@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"bods2loki/pkg/logging"
+	"bods2loki/pkg/metrics"
 	"bods2loki/pkg/pipeline"
 	"bods2loki/pkg/profiling"
 	"bods2loki/pkg/tracing"
@@ -89,6 +90,14 @@ func main() {
 		os.Exit(1)
 	}
 	defer shutdownTracing()
+
+	// Initialize metrics
+	shutdownMetrics, err := metrics.InitMetrics()
+	if err != nil {
+		slog.Error("Failed to initialize metrics", "error", err)
+		os.Exit(1)
+	}
+	defer shutdownMetrics()
 
 	// Initialize profiling
 	shutdownProfiling, err := profiling.InitProfiling()
