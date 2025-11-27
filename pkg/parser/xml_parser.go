@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"bods2loki/pkg/bods"
+	"bods2loki/pkg/metrics"
 	"bods2loki/pkg/types"
 
 	"github.com/clbanning/mxj/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -36,10 +39,13 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 	)
 	defer span.End()
 
+	start := time.Now()
+
 	// Parse XML to map
 	xmlMap, err := mxj.NewMapXml([]byte(busData.XMLData))
 	if err != nil {
 		span.RecordError(err)
+		p.recordParseDuration(ctx, busData.LineRef, start)
 		return nil, fmt.Errorf("failed to parse XML: %w", err)
 	}
 
@@ -47,6 +53,7 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 	vehicles, err := p.extractVehicleActivities(ctx, xmlMap)
 	if err != nil {
 		span.RecordError(err)
+		p.recordParseDuration(ctx, busData.LineRef, start)
 		return nil, fmt.Errorf("failed to extract vehicle activities: %w", err)
 	}
 
@@ -54,12 +61,27 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 		attribute.Int("vehicles_count", len(vehicles)),
 	)
 
+	// Record successful parse duration
+	p.recordParseDuration(ctx, busData.LineRef, start)
+
 	return &types.ParsedBusData{
 		LineRef:     busData.LineRef,
 		Timestamp:   busData.Timestamp.Format("2006-01-02T15:04:05.000Z"),
 		VehicleData: vehicles,
 		RawData:     xmlMap,
 	}, nil
+}
+
+// recordParseDuration records the XML parsing duration metric
+func (p *XMLParser) recordParseDuration(ctx context.Context, lineRef string, start time.Time) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	duration := time.Since(start).Seconds()
+	metrics.XMLParseDuration.Record(ctx, duration, metric.WithAttributes(
+		attribute.String("line_ref", lineRef),
+	))
 }
 
 func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[string]interface{}) ([]types.VehicleActivity, error) {
