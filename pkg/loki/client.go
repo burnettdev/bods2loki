@@ -114,6 +114,9 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 		attribute.Int("log_lines.count", len(logValues)),
 	))
 
+	// Record batch metrics
+	c.recordBatchMetrics(ctx, len(logValues), 1) // 1 stream per request currently
+
 	// Create Loki push request with individual log lines
 	lokiReq := PushRequest{
 		Streams: []Stream{
@@ -143,6 +146,7 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	if err != nil {
 		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, false)
 		c.recordHTTPMetrics(ctx, start, 0, requestSize, "request_creation_error")
+		c.recordSendMetrics(ctx, start, "error")
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -182,6 +186,7 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	if err != nil {
 		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, true)
 		c.recordHTTPMetrics(ctx, start, 0, requestSize, "network_error")
+		c.recordSendMetrics(ctx, start, "error")
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -199,11 +204,13 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 		err := fmt.Errorf("Loki returned status %d", resp.StatusCode)
 		pkgotel.RecordError(span, err, pkgotel.ErrorTypeHTTP, false)
 		c.recordHTTPMetrics(ctx, start, resp.StatusCode, requestSize, "")
+		c.recordSendMetrics(ctx, start, "error")
 		return err
 	}
 
 	// Record successful metrics
 	c.recordHTTPMetrics(ctx, start, resp.StatusCode, requestSize, "")
+	c.recordSendMetrics(ctx, start, "success")
 
 	// Record vehicles sent to Loki
 	c.recordVehiclesSent(ctx, data.LineRef, len(data.VehicleData))
@@ -257,5 +264,34 @@ func (c *Client) recordVehiclesSent(ctx context.Context, lineRef string, count i
 	metrics.PipelineVehiclesProcessed.Add(ctx, int64(count), metric.WithAttributes(
 		attribute.String("line_ref", lineRef),
 		attribute.String("stage", "sent_to_loki"),
+	))
+}
+
+// recordBatchMetrics records Loki batch metrics
+func (c *Client) recordBatchMetrics(ctx context.Context, recordCount, streamCount int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.LokiBatchSize.Record(ctx, int64(recordCount))
+	metrics.LokiBatchStreams.Record(ctx, int64(streamCount))
+}
+
+// recordSendMetrics records Loki send operation metrics
+func (c *Client) recordSendMetrics(ctx context.Context, start time.Time, status string) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	duration := time.Since(start).Seconds()
+
+	// Record send duration
+	metrics.LokiSendDuration.Record(ctx, duration, metric.WithAttributes(
+		attribute.String("status", status),
+	))
+
+	// Record send total
+	metrics.LokiSendTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("status", status),
 	))
 }
