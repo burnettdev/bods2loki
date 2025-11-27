@@ -42,6 +42,9 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 
 	start := time.Now()
 
+	// Record payload size
+	p.recordPayloadSize(ctx, len(busData.XMLData))
+
 	// Parse XML to map
 	xmlMap, err := mxj.NewMapXml([]byte(busData.XMLData))
 	if err != nil {
@@ -73,6 +76,9 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 	// Record successful parse duration
 	p.recordParseDuration(ctx, busData.LineRef, start)
 
+	// Record vehicles extracted
+	p.recordVehiclesExtracted(ctx, len(vehicles))
+
 	// Set span status to Ok on success
 	pkgotel.SetSpanOk(span)
 
@@ -94,6 +100,24 @@ func (p *XMLParser) recordParseDuration(ctx context.Context, lineRef string, sta
 	metrics.XMLParseDuration.Record(ctx, duration, metric.WithAttributes(
 		attribute.String("line_ref", lineRef),
 	))
+}
+
+// recordPayloadSize records the XML payload size metric
+func (p *XMLParser) recordPayloadSize(ctx context.Context, size int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.ParserPayloadSize.Record(ctx, int64(size))
+}
+
+// recordVehiclesExtracted records the count of successfully extracted vehicles
+func (p *XMLParser) recordVehiclesExtracted(ctx context.Context, count int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.ParserVehiclesExtracted.Add(ctx, int64(count))
 }
 
 func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[string]interface{}) ([]types.VehicleActivity, error) {
