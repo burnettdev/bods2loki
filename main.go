@@ -18,6 +18,62 @@ import (
 	"bods2loki/pkg/tracing"
 )
 
+// logConfiguration logs all configuration at startup (excluding sensitive values)
+func logConfiguration(cfg *pipeline.Config) {
+	// Base configuration
+	slog.Info("Base configuration",
+		"dry_run", cfg.DryRun,
+		"dataset_id", cfg.DatasetID,
+		"line_refs", cfg.LineRefs,
+		"loki_url", cfg.LokiURL,
+		"loki_user", cfg.LokiUser,
+		"interval", cfg.Interval,
+		"log_level", getEnv("LOG_LEVEL", "info"),
+	)
+
+	// Tracing configuration
+	tracingEnabled := os.Getenv("OTEL_TRACING_ENABLED") == "true"
+	slog.Info("Tracing configuration",
+		"enabled", tracingEnabled,
+		"sampler", getEnv("OTEL_TRACES_SAMPLER", "parentbased_always_on"),
+		"sampler_arg", os.Getenv("OTEL_TRACES_SAMPLER_ARG"),
+	)
+	if tracingEnabled {
+		slog.Info("Tracing exporter",
+			"endpoint", getEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
+			"protocol", getEnv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", getEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")),
+			"insecure", os.Getenv("OTEL_EXPORTER_OTLP_TRACES_INSECURE"),
+			"compression", os.Getenv("OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"),
+		)
+	}
+
+	// Metrics configuration
+	metricsEnabled := os.Getenv("OTEL_METRICS_ENABLED") == "true"
+	slog.Info("Metrics configuration",
+		"enabled", metricsEnabled,
+	)
+	if metricsEnabled {
+		slog.Info("Metrics exporter",
+			"endpoint", getEnv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
+			"protocol", getEnv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", getEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")),
+			"insecure", os.Getenv("OTEL_EXPORTER_OTLP_METRICS_INSECURE"),
+			"compression", os.Getenv("OTEL_EXPORTER_OTLP_METRICS_COMPRESSION"),
+		)
+	}
+
+	// Profiling configuration
+	profilingEnabled := os.Getenv("PYROSCOPE_PROFILING_ENABLED") == "true"
+	slog.Info("Profiling configuration",
+		"enabled", profilingEnabled,
+	)
+	if profilingEnabled {
+		slog.Info("Profiling exporter",
+			"server_address", getEnv("PYROSCOPE_SERVER_ADDRESS", "http://localhost:4040"),
+			"application_name", getEnv("PYROSCOPE_APPLICATION_NAME", "bods2loki"),
+		)
+	}
+}
+
 func main() {
 	// Command line flags
 	var (
@@ -126,16 +182,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Print startup information
+	// Log configuration at startup
+	logConfiguration(&config)
+
+	// Print startup mode information
 	if *dryRun {
 		slog.Info("Starting BODS to Loki pipeline in DRY RUN mode")
 		slog.Info("Data will be printed to stdout, not sent to Loki")
 	} else {
 		slog.Info("Starting BODS to Loki pipeline in PRODUCTION mode")
-		slog.Info("Data will be sent to Loki", "url", *lokiURL)
 	}
-	slog.Info("Monitoring lines", "lines", lineRefsList)
-	slog.Info("Polling interval", "interval", intervalDuration)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
