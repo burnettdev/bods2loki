@@ -63,9 +63,11 @@ func NewClient(apiKey, datasetID string) *Client {
 
 func (c *Client) FetchBusData(ctx context.Context, lineRef string) (*BusData, error) {
 	ctx, span := c.tracer.Start(ctx, "bods.fetch_bus_data",
+		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("line_ref", lineRef),
 			attribute.String("server.address", c.serverHost),
+			attribute.Int("server.port", 443), // HTTPS
 		),
 	)
 	defer span.End()
@@ -158,11 +160,12 @@ func (c *Client) recordHTTPMetrics(ctx context.Context, start time.Time, statusC
 
 	duration := time.Since(start).Seconds()
 
-	// Common attributes
+	// Common attributes using OTel semantic conventions
 	attrs := []attribute.KeyValue{
 		attribute.String("http.request.method", "GET"),
 		attribute.String("server.address", c.serverHost),
-		attribute.String("service.target", "bods_api"),
+		attribute.Int("server.port", 443),
+		attribute.String("peer.service", c.serverHost),
 	}
 
 	if statusCode > 0 {
@@ -179,7 +182,8 @@ func (c *Client) recordHTTPMetrics(ctx context.Context, start time.Time, statusC
 	if responseSize > 0 {
 		metrics.HTTPClientResponseBodySize.Record(ctx, responseSize, metric.WithAttributes(
 			attribute.String("server.address", c.serverHost),
-			attribute.String("service.target", "bods_api"),
+			attribute.Int("server.port", 443),
+			attribute.String("peer.service", c.serverHost),
 		))
 	}
 

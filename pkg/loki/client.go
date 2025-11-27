@@ -25,6 +25,7 @@ type Client struct {
 	httpClient *http.Client
 	baseURL    string
 	serverHost string
+	serverPort int
 	username   string
 	password   string
 	tracer     trace.Tracer
@@ -46,17 +47,26 @@ func NewClient(baseURL, username, password string) *Client {
 		Timeout:   30 * time.Second,
 	}
 
-	// Extract server host for metrics
+	// Extract server host and port for metrics/tracing
 	parsedURL, _ := url.Parse(baseURL)
 	serverHost := ""
+	serverPort := 443 // Default for HTTPS
 	if parsedURL != nil {
-		serverHost = parsedURL.Host
+		serverHost = parsedURL.Hostname()
+		if portStr := parsedURL.Port(); portStr != "" {
+			if p, err := strconv.Atoi(portStr); err == nil {
+				serverPort = p
+			}
+		} else if parsedURL.Scheme == "http" {
+			serverPort = 80
+		}
 	}
 
 	return &Client{
 		httpClient: client,
 		baseURL:    baseURL,
 		serverHost: serverHost,
+		serverPort: serverPort,
 		username:   username,
 		password:   password,
 		tracer:     otel.Tracer("loki-client"),
@@ -72,10 +82,12 @@ type vehicleLogEntry struct {
 
 func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) error {
 	ctx, span := c.tracer.Start(ctx, "loki.send_bus_data",
+		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
 			attribute.String("line_ref", data.LineRef),
 			attribute.Int("vehicles_count", len(data.VehicleData)),
 			attribute.String("server.address", c.serverHost),
+			attribute.Int("server.port", c.serverPort),
 		),
 	)
 	defer span.End()
@@ -229,11 +241,12 @@ func (c *Client) recordHTTPMetrics(ctx context.Context, start time.Time, statusC
 
 	duration := time.Since(start).Seconds()
 
-	// Common attributes
+	// Common attributes using OTel semantic conventions
 	attrs := []attribute.KeyValue{
 		attribute.String("http.request.method", "POST"),
 		attribute.String("server.address", c.serverHost),
-		attribute.String("service.target", "loki"),
+		attribute.Int("server.port", c.serverPort),
+		attribute.String("peer.service", c.serverHost),
 	}
 
 	if statusCode > 0 {
@@ -250,7 +263,8 @@ func (c *Client) recordHTTPMetrics(ctx context.Context, start time.Time, statusC
 	if requestSize > 0 {
 		metrics.HTTPClientRequestBodySize.Record(ctx, requestSize, metric.WithAttributes(
 			attribute.String("server.address", c.serverHost),
-			attribute.String("service.target", "loki"),
+			attribute.Int("server.port", c.serverPort),
+			attribute.String("peer.service", c.serverHost),
 		))
 	}
 }
