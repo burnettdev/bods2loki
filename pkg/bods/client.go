@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"bods2loki/pkg/metrics"
+	pkgotel "bods2loki/pkg/otel"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -64,7 +65,7 @@ func (c *Client) FetchBusData(ctx context.Context, lineRef string) (*BusData, er
 	ctx, span := c.tracer.Start(ctx, "bods.fetch_bus_data",
 		trace.WithAttributes(
 			attribute.String("line_ref", lineRef),
-			attribute.String("api.endpoint", c.baseURL),
+			attribute.String("server.address", c.serverHost),
 		),
 	)
 	defer span.End()
@@ -74,15 +75,16 @@ func (c *Client) FetchBusData(ctx context.Context, lineRef string) (*BusData, er
 	// Build URL with parameters
 	reqURL := fmt.Sprintf("%s?api_key=%s&lineRef=%s", c.baseURL, c.apiKey, lineRef)
 
+	// Use OTEL semantic conventions for HTTP attributes
 	span.SetAttributes(
-		attribute.String("http.url", reqURL),
-		attribute.String("http.method", "GET"),
+		attribute.String("url.full", reqURL),
+		attribute.String("http.request.method", "GET"),
 	)
 
 	// Create request
 	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, false)
 		c.recordHTTPMetrics(ctx, start, 0, 0, "request_creation_error")
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -90,17 +92,27 @@ func (c *Client) FetchBusData(ctx context.Context, lineRef string) (*BusData, er
 	req.Header.Set("User-Agent", "bods2loki/1.0.0")
 	req.Header.Set("Accept", "*/*")
 
+	// Add span event for request start
+	span.AddEvent("http.request.started", trace.WithAttributes(
+		attribute.String("http.request.method", "GET"),
+	))
+
 	// Make request
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, true)
 		c.recordHTTPMetrics(ctx, start, 0, 0, "network_error")
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Add span event for response received
+	span.AddEvent("http.response.received", trace.WithAttributes(
+		attribute.Int("http.response.status_code", resp.StatusCode),
+	))
+
 	span.SetAttributes(
-		attribute.Int("http.status_code", resp.StatusCode),
+		attribute.Int("http.response.status_code", resp.StatusCode),
 		attribute.String("http.response.content_type", resp.Header.Get("Content-Type")),
 	)
 
@@ -108,7 +120,7 @@ func (c *Client) FetchBusData(ctx context.Context, lineRef string) (*BusData, er
 		// Read the error response body for debugging
 		body, _ := io.ReadAll(resp.Body)
 		err := fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeHTTP, false)
 		c.recordHTTPMetrics(ctx, start, resp.StatusCode, int64(len(body)), "")
 		return nil, err
 	}
@@ -116,17 +128,20 @@ func (c *Client) FetchBusData(ctx context.Context, lineRef string) (*BusData, er
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, true)
 		c.recordHTTPMetrics(ctx, start, resp.StatusCode, 0, "read_error")
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	span.SetAttributes(
-		attribute.Int("response.size_bytes", len(body)),
+		attribute.Int64("http.response.body.size", int64(len(body))),
 	)
 
 	// Record successful metrics
 	c.recordHTTPMetrics(ctx, start, resp.StatusCode, int64(len(body)), "")
+
+	// Set span status to Ok on success
+	pkgotel.SetSpanOk(span)
 
 	return &BusData{
 		XMLData:   string(body),
