@@ -182,4 +182,14 @@ func (c *Client) recordHTTPMetrics(ctx context.Context, start time.Time, statusC
 			attribute.String("service.target", "bods_api"),
 		))
 	}
+
+	// Record BODS API request total
+	bodsAttrs := []attribute.KeyValue{}
+	if statusCode > 0 {
+		bodsAttrs = append(bodsAttrs, attribute.Int("http.response.status_code", statusCode))
+	}
+	if errorType != "" {
+		bodsAttrs = append(bodsAttrs, attribute.String("error.type", errorType))
+	}
+	metrics.BODSAPIRequestsTotal.Add(ctx, 1, metric.WithAttributes(bodsAttrs...))
 }
