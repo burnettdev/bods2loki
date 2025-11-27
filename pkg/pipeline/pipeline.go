@@ -111,11 +111,16 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 
 	start := time.Now()
 
+	// Record lines attempted this cycle
+	p.recordCycleLinesTotal(ctx, len(p.config.LineRefs))
+
 	// Process all lines concurrently
 	type lineResult struct {
-		lineRef string
-		data    *types.ParsedBusData
-		err     error
+		lineRef       string
+		data          *types.ParsedBusData
+		err           error
+		fetchDuration time.Duration
+		parseDuration time.Duration
 	}
 
 	results := make(chan lineResult, len(p.config.LineRefs))
@@ -134,20 +139,28 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 			defer lineSpan.End()
 
 			// Fetch data from BODS API
+			fetchStart := time.Now()
 			busData, err := p.bodsClient.FetchBusData(lineCtx, line)
+			fetchDuration := time.Since(fetchStart)
 			if err != nil {
 				lineSpan.RecordError(err)
-				results <- lineResult{lineRef: line, err: fmt.Errorf("failed to fetch bus data for line %s: %w", line, err)}
+				p.recordStageDuration(lineCtx, "fetch", line, fetchDuration)
+				results <- lineResult{lineRef: line, err: fmt.Errorf("failed to fetch bus data for line %s: %w", line, err), fetchDuration: fetchDuration}
 				return
 			}
+			p.recordStageDuration(lineCtx, "fetch", line, fetchDuration)
 
 			// Parse XML to JSON
+			parseStart := time.Now()
 			parsedData, err := p.parser.ParseBusData(lineCtx, busData)
+			parseDuration := time.Since(parseStart)
 			if err != nil {
 				lineSpan.RecordError(err)
-				results <- lineResult{lineRef: line, err: fmt.Errorf("failed to parse bus data for line %s: %w", line, err)}
+				p.recordStageDuration(lineCtx, "parse", line, parseDuration)
+				results <- lineResult{lineRef: line, err: fmt.Errorf("failed to parse bus data for line %s: %w", line, err), fetchDuration: fetchDuration, parseDuration: parseDuration}
 				return
 			}
+			p.recordStageDuration(lineCtx, "parse", line, parseDuration)
 
 			lineSpan.SetAttributes(
 				attribute.Int("vehicles_processed", len(parsedData.VehicleData)),
@@ -156,7 +169,7 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 			// Record parsed vehicles
 			p.recordVehiclesParsed(ctx, line, len(parsedData.VehicleData))
 
-			results <- lineResult{lineRef: line, data: parsedData, err: nil}
+			results <- lineResult{lineRef: line, data: parsedData, err: nil, fetchDuration: fetchDuration, parseDuration: parseDuration}
 		}(lineRef)
 	}
 
@@ -171,7 +184,12 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 			errors = append(errors, result.err)
 			slog.Error("Error processing line", "line", result.lineRef, "error", result.err)
 			// Record line failure
-			p.recordLineProcessed(ctx, result.lineRef, "error", p.categorizeError(result.err))
+			errorType := p.categorizeError(result.err)
+			p.recordLineProcessed(ctx, result.lineRef, "error", errorType)
+			// Record error metric
+			p.recordError(ctx, errorType, result.lineRef)
+			// Record cycle line failed
+			p.recordCycleLinesFailed(ctx, 1)
 		} else {
 			allData = append(allData, result.data)
 			totalVehicles += len(result.data.VehicleData)
@@ -427,4 +445,53 @@ func (p *Pipeline) recordLineInFlight(ctx context.Context, delta int64) {
 	}
 
 	metrics.PipelineLinesInFlight.Add(ctx, delta)
+}
+
+func (p *Pipeline) recordError(ctx context.Context, errorType, lineRef string) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	stage := "unknown"
+	switch errorType {
+	case "fetch_failed":
+		stage = "fetch"
+	case "parse_failed":
+		stage = "parse"
+	case "send_failed":
+		stage = "send"
+	}
+
+	metrics.PipelineErrorsTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("pipeline.stage", stage),
+		attribute.String("error.type", errorType),
+		attribute.String("line_ref", lineRef),
+	))
+}
+
+func (p *Pipeline) recordStageDuration(ctx context.Context, stage, lineRef string, duration time.Duration) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.PipelineStageDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(
+		attribute.String("pipeline.stage", stage),
+		attribute.String("line_ref", lineRef),
+	))
+}
+
+func (p *Pipeline) recordCycleLinesTotal(ctx context.Context, count int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.PipelineCycleLinesTotal.Add(ctx, int64(count))
+}
+
+func (p *Pipeline) recordCycleLinesFailed(ctx context.Context, count int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.PipelineCycleLinesFailed.Add(ctx, int64(count))
 }
