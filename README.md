@@ -29,7 +29,8 @@ LOG_LEVEL=info
 # OpenTelemetry Tracing Configuration (Optional)
 OTEL_TRACING_ENABLED=true
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp-gateway.example.com/otlp
-OTEL_TRACES_SAMPLER=always_on
+OTEL_TRACES_SAMPLER=parentbased_always_on
+# OTEL_TRACES_SAMPLER_ARG=0.1  # For ratio samplers: 0.1 = 10% sampling
 
 # Pyroscope Profiling Configuration (Optional)
 PYROSCOPE_PROFILING_ENABLED=true
@@ -81,7 +82,14 @@ The application supports distributed tracing using OpenTelemetry. This is option
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: Alternative way to set the endpoint (will append `/v1/traces` automatically)
 - `OTEL_EXPORTER_OTLP_TRACES_HEADERS`: Headers for trace export (format: `key1=value1,key2=value2`)
 - `OTEL_EXPORTER_OTLP_TRACES_INSECURE`: Override secure/insecure mode (`true` for HTTP, `false` for HTTPS). If not set, determined automatically from URL scheme.
-- `OTEL_TRACES_SAMPLER`: Sampling strategy (`always_on`, `always_off`, `traceidratio`)
+- `OTEL_TRACES_SAMPLER`: Sampling strategy (default: `parentbased_always_on`)
+  - `always_on`: Sample all traces (100%)
+  - `always_off`: Disable tracing
+  - `traceidratio`: Sample a percentage of traces
+  - `parentbased_always_on`: Parent-based, samples all root spans
+  - `parentbased_always_off`: Parent-based, never samples root spans
+  - `parentbased_traceidratio`: Parent-based with ratio sampling for root spans
+- `OTEL_TRACES_SAMPLER_ARG`: Sampler argument (for ratio samplers: `0.0`-`1.0`, e.g., `0.1` = 10%)
 
 #### URL Format
 
@@ -315,7 +323,8 @@ The `docker-compose.yml` passes the following environment variables from your `.
 **OpenTelemetry Tracing:**
 - `OTEL_TRACING_ENABLED` - Enable tracing (default: `false`)
 - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` - OTLP endpoint URL (default: `http://localhost:4318`)
-- `OTEL_TRACES_SAMPLER` - Sampling strategy (default: `always_on`)
+- `OTEL_TRACES_SAMPLER` - Sampling strategy (default: `parentbased_always_on`)
+- `OTEL_TRACES_SAMPLER_ARG` - Sampler argument (for ratio samplers: `0.0`-`1.0`)
 - `OTEL_EXPORTER_OTLP_TRACES_INSECURE` - Force insecure mode
 - `OTEL_EXPORTER_OTLP_TRACES_HEADERS` - Custom headers (format: `key1=value1,key2=value2`)
 
