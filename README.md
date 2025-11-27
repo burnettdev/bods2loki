@@ -77,12 +77,20 @@ The application supports distributed tracing using OpenTelemetry. This is option
 #### Environment Variables
 
 - `OTEL_TRACING_ENABLED`: Set to `true` or `1` to enable tracing
-- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: OTLP HTTP endpoint for traces (default: `localhost:4318`)
-- `OTEL_EXPORTER_OTLP_ENDPOINT`: Alternative way to set the endpoint (will append `/v1/traces`)
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: Full OTLP HTTP endpoint URL for traces (e.g., `https://otlp-gateway.grafana.net/otlp`)
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: Alternative way to set the endpoint (will append `/v1/traces` automatically)
 - `OTEL_EXPORTER_OTLP_TRACES_HEADERS`: Headers for trace export (format: `key1=value1,key2=value2`)
-- `OTEL_EXPORTER_OTLP_HEADERS`: Alternative way to set headers
-- `OTEL_EXPORTER_OTLP_TRACES_INSECURE`: Set to `true` for insecure connections
+- `OTEL_EXPORTER_OTLP_TRACES_INSECURE`: Override secure/insecure mode (`true` for HTTP, `false` for HTTPS). If not set, determined automatically from URL scheme.
 - `OTEL_TRACES_SAMPLER`: Sampling strategy (`always_on`, `always_off`, `traceidratio`)
+
+#### URL Format
+
+The endpoint accepts full URLs including scheme and path:
+- `https://otlp-gateway-prod-gb-south-1.grafana.net/otlp` - HTTPS with custom path
+- `http://localhost:4318` - Local development with HTTP
+- `otlp-gateway.example.com/otlp` - Without scheme (defaults to HTTPS)
+
+The URL scheme (`http://` vs `https://`) automatically determines whether to use secure connections unless overridden by `OTEL_EXPORTER_OTLP_TRACES_INSECURE`.
 
 #### Trace Information
 
@@ -166,11 +174,10 @@ docker build -t bods2loki .
 docker run -d \
   --name bods2loki \
   -e BODS_API_KEY=your_bods_api_key_here \
-  -e BODS_DATASET_ID=your_bods_dataset_id \
   -e BODS_LINE_REFS=your_bus_lines_reference_numbers \
   -e BODS_LOKI_URL=http://your-loki-instance \
   -e OTEL_TRACING_ENABLED=true \
-  -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=localhost:4318 \
+  -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318 \
   --restart unless-stopped \
   bods2loki
 ```
@@ -341,11 +348,11 @@ The application converts BODS XML data to the following JSON structure:
 The application includes comprehensive OpenTelemetry tracing:
 
 - HTTP requests to BODS API
-- XML parsing operations  
+- XML parsing operations
 - Loki data transmission
 - Pipeline processing metrics
 
-Traces are exported to an OTLP endpoint at `http://localhost:4318` by default.
+Traces are exported to an OTLP endpoint (default: `http://localhost:4318`). The endpoint accepts full URLs with scheme and path, e.g., `https://otlp-gateway.grafana.net/otlp`.
 
 ## Loki Labels
 
