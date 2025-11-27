@@ -9,11 +9,13 @@ import (
 
 	"bods2loki/pkg/bods"
 	"bods2loki/pkg/loki"
+	"bods2loki/pkg/metrics"
 	"bods2loki/pkg/parser"
 	"bods2loki/pkg/types"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -107,7 +109,12 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 
 	// Start concurrent fetching for each line
 	for _, lineRef := range p.config.LineRefs {
+		// Track in-flight lines
+		p.recordLineInFlight(ctx, 1)
+
 		go func(line string) {
+			defer p.recordLineInFlight(ctx, -1)
+
 			lineCtx, lineSpan := p.tracer.Start(ctx, "pipeline.process_line",
 				trace.WithAttributes(attribute.String("line_ref", line)),
 			)
@@ -133,6 +140,9 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 				attribute.Int("vehicles_processed", len(parsedData.VehicleData)),
 			)
 
+			// Record parsed vehicles
+			p.recordVehiclesParsed(ctx, line, len(parsedData.VehicleData))
+
 			results <- lineResult{lineRef: line, data: parsedData, err: nil}
 		}(lineRef)
 	}
@@ -147,9 +157,13 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 		if result.err != nil {
 			errors = append(errors, result.err)
 			slog.Error("Error processing line", "line", result.lineRef, "error", result.err)
+			// Record line failure
+			p.recordLineProcessed(ctx, result.lineRef, "error", p.categorizeError(result.err))
 		} else {
 			allData = append(allData, result.data)
 			totalVehicles += len(result.data.VehicleData)
+			// Record line success
+			p.recordLineProcessed(ctx, result.lineRef, "success", "")
 		}
 	}
 
@@ -172,6 +186,10 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 			}
 		}
 	}
+
+	// Determine cycle status and record metrics
+	cycleStatus := p.determineCycleStatus(len(allData), len(errors), len(p.config.LineRefs))
+	p.recordCycleMetrics(ctx, start, cycleStatus, len(p.config.LineRefs))
 
 	// Return error only if all lines failed
 	if len(errors) == len(p.config.LineRefs) {
@@ -261,4 +279,128 @@ func (p *Pipeline) sendToLoki(ctx context.Context, data *types.ParsedBusData) er
 	)
 
 	return nil
+}
+
+// determineCycleStatus determines the status of a processing cycle
+func (p *Pipeline) determineCycleStatus(successCount, errorCount, totalCount int) string {
+	if errorCount == 0 {
+		return "success"
+	}
+	if errorCount == totalCount {
+		return "total_failure"
+	}
+	return "partial_failure"
+}
+
+// categorizeError categorizes an error for metrics
+func (p *Pipeline) categorizeError(err error) string {
+	if err == nil {
+		return ""
+	}
+	errStr := err.Error()
+	if contains(errStr, "fetch") {
+		return "fetch_failed"
+	}
+	if contains(errStr, "parse") {
+		return "parse_failed"
+	}
+	if contains(errStr, "send") || contains(errStr, "loki") {
+		return "send_failed"
+	}
+	return "unknown"
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && containsLower(s, substr)))
+}
+
+func containsLower(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if matchLower(s[i:i+len(substr)], substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchLower(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			return false
+		}
+	}
+	return true
+}
+
+// Metrics recording functions
+
+func (p *Pipeline) recordCycleMetrics(ctx context.Context, start time.Time, status string, linesCount int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	duration := time.Since(start).Seconds()
+
+	// Record cycle count
+	metrics.PipelineCyclesTotal.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("status", status),
+	))
+
+	// Record cycle duration
+	metrics.PipelineCycleDuration.Record(ctx, duration, metric.WithAttributes(
+		attribute.String("status", status),
+		attribute.Int("lines_count", linesCount),
+	))
+
+	// Record last success timestamp if successful
+	if status == "success" {
+		metrics.RecordLastSuccessTimestamp()
+	}
+}
+
+func (p *Pipeline) recordLineProcessed(ctx context.Context, lineRef, status, errorType string) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String("line_ref", lineRef),
+		attribute.String("status", status),
+	}
+	if errorType != "" {
+		attrs = append(attrs, attribute.String("error.type", errorType))
+	}
+
+	metrics.PipelineLinesProcessed.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+func (p *Pipeline) recordVehiclesParsed(ctx context.Context, lineRef string, count int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.PipelineVehiclesProcessed.Add(ctx, int64(count), metric.WithAttributes(
+		attribute.String("line_ref", lineRef),
+		attribute.String("stage", "parsed"),
+	))
+}
+
+func (p *Pipeline) recordLineInFlight(ctx context.Context, delta int64) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.PipelineLinesInFlight.Add(ctx, delta)
 }
