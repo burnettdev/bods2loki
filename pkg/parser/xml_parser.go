@@ -9,6 +9,7 @@ import (
 
 	"bods2loki/pkg/bods"
 	"bods2loki/pkg/metrics"
+	pkgotel "bods2loki/pkg/otel"
 	"bods2loki/pkg/types"
 
 	"github.com/clbanning/mxj/v2"
@@ -44,18 +45,26 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 	// Parse XML to map
 	xmlMap, err := mxj.NewMapXml([]byte(busData.XMLData))
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeParse, false)
 		p.recordParseDuration(ctx, busData.LineRef, start)
 		return nil, fmt.Errorf("failed to parse XML: %w", err)
 	}
 
+	// Add event for XML parsed
+	span.AddEvent("xml.parsed")
+
 	// Extract vehicle activities
 	vehicles, err := p.extractVehicleActivities(ctx, xmlMap)
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeParse, false)
 		p.recordParseDuration(ctx, busData.LineRef, start)
 		return nil, fmt.Errorf("failed to extract vehicle activities: %w", err)
 	}
+
+	// Add event for vehicles extracted
+	span.AddEvent("vehicles.extracted", trace.WithAttributes(
+		attribute.Int("count", len(vehicles)),
+	))
 
 	span.SetAttributes(
 		attribute.Int("vehicles_count", len(vehicles)),
@@ -63,6 +72,9 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 
 	// Record successful parse duration
 	p.recordParseDuration(ctx, busData.LineRef, start)
+
+	// Set span status to Ok on success
+	pkgotel.SetSpanOk(span)
 
 	return &types.ParsedBusData{
 		LineRef:     busData.LineRef,
@@ -94,16 +106,19 @@ func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[str
 	// The structure appears to be: Siri -> ServiceDelivery -> VehicleMonitoringDelivery -> VehicleActivity
 	siri, ok := xmlMap["Siri"].(map[string]interface{})
 	if !ok {
+		pkgotel.SetSpanOk(span)
 		return vehicles, nil
 	}
 
 	serviceDelivery, ok := siri["ServiceDelivery"].(map[string]interface{})
 	if !ok {
+		pkgotel.SetSpanOk(span)
 		return vehicles, nil
 	}
 
 	vmDelivery, ok := serviceDelivery["VehicleMonitoringDelivery"].(map[string]interface{})
 	if !ok {
+		pkgotel.SetSpanOk(span)
 		return vehicles, nil
 	}
 
@@ -115,6 +130,7 @@ func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[str
 	case map[string]interface{}:
 		vehicleActivities = []interface{}{va}
 	default:
+		pkgotel.SetSpanOk(span)
 		return vehicles, nil
 	}
 
@@ -134,6 +150,7 @@ func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[str
 		attribute.Int("extracted_vehicles", len(vehicles)),
 	)
 
+	pkgotel.SetSpanOk(span)
 	return vehicles, nil
 }
 
