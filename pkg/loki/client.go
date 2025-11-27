@@ -50,6 +50,13 @@ func NewClient(baseURL, username, password string) *Client {
 	}
 }
 
+// vehicleLogEntry wraps vehicle data with metadata for Loki log entries
+type vehicleLogEntry struct {
+	Timestamp string `json:"timestamp"`
+	LineRef   string `json:"line_ref"`
+	types.VehicleActivity
+}
+
 func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) error {
 	ctx, span := c.tracer.Start(ctx, "loki.send_bus_data",
 		trace.WithAttributes(
@@ -63,28 +70,17 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	var logValues [][]string
 
 	for _, vehicle := range data.VehicleData {
-		// Create individual vehicle log entry
-		vehicleLog := map[string]interface{}{
-			"timestamp":                      data.Timestamp,
-			"line_ref":                       data.LineRef,
-			"vehicle_ref":                    vehicle.VehicleRef,
-			"direction_ref":                  vehicle.DirectionRef,
-			"operator_ref":                   vehicle.OperatorRef,
-			"origin_ref":                     vehicle.OriginRef,
-			"origin_name":                    vehicle.OriginName,
-			"destination_ref":                vehicle.DestinationRef,
-			"destination_name":               vehicle.DestinationName,
-			"origin_aimed_departure_time":    vehicle.OriginAimedDepartureTime,
-			"destination_aimed_arrival_time": vehicle.DestinationAimedArrivalTime,
-			"longitude":                      vehicle.Longitude,
-			"latitude":                       vehicle.Latitude,
-			"recorded_at_time":               vehicle.RecordedAtTime,
-			"valid_until_time":               vehicle.ValidUntilTime,
-			"bus_image":                      vehicle.BusImage,
+		// Create log entry with embedded vehicle data
+		// All VehicleActivity fields are automatically included
+		// Missing fields are silently omitted via omitempty tags
+		entry := vehicleLogEntry{
+			Timestamp:       data.Timestamp,
+			LineRef:         data.LineRef,
+			VehicleActivity: vehicle,
 		}
 
-		// Convert vehicle to JSON
-		vehicleJSON, err := json.Marshal(vehicleLog)
+		// Convert to JSON
+		vehicleJSON, err := json.Marshal(entry)
 		if err != nil {
 			span.RecordError(err)
 			return fmt.Errorf("failed to marshal vehicle JSON: %w", err)

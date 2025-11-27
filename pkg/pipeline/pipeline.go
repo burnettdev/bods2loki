@@ -207,28 +207,21 @@ func (p *Pipeline) handleDryRun(ctx context.Context, data *types.ParsedBusData) 
 
 	// Show individual log lines as they would be sent to Loki
 	for i, vehicle := range data.VehicleData {
-		// Create individual vehicle log entry (same format as Loki client)
-		vehicleLog := map[string]interface{}{
-			"timestamp":                      data.Timestamp,
-			"line_ref":                       data.LineRef,
-			"vehicle_ref":                    vehicle.VehicleRef,
-			"direction_ref":                  vehicle.DirectionRef,
-			"operator_ref":                   vehicle.OperatorRef,
-			"origin_ref":                     vehicle.OriginRef,
-			"origin_name":                    vehicle.OriginName,
-			"destination_ref":                vehicle.DestinationRef,
-			"destination_name":               vehicle.DestinationName,
-			"origin_aimed_departure_time":    vehicle.OriginAimedDepartureTime,
-			"destination_aimed_arrival_time": vehicle.DestinationAimedArrivalTime,
-			"longitude":                      vehicle.Longitude,
-			"latitude":                       vehicle.Latitude,
-			"recorded_at_time":               vehicle.RecordedAtTime,
-			"valid_until_time":               vehicle.ValidUntilTime,
-			"bus_image":                      vehicle.BusImage,
+		// Create log entry with embedded vehicle data (same format as Loki client)
+		// All VehicleActivity fields are automatically included
+		// Missing fields are silently omitted via omitempty tags
+		entry := struct {
+			Timestamp string `json:"timestamp"`
+			LineRef   string `json:"line_ref"`
+			types.VehicleActivity
+		}{
+			Timestamp:       data.Timestamp,
+			LineRef:         data.LineRef,
+			VehicleActivity: vehicle,
 		}
 
-		// Convert vehicle to JSON
-		vehicleJSON, err := json.Marshal(vehicleLog)
+		// Convert to JSON
+		vehicleJSON, err := json.Marshal(entry)
 		if err != nil {
 			span.RecordError(err)
 			return fmt.Errorf("failed to marshal vehicle JSON for dry run: %w", err)
