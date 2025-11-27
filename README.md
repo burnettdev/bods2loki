@@ -189,18 +189,17 @@ Pull from Github Container Registry:
 docker run -d \
   --name bods2loki \
   -e BODS_API_KEY=your_bods_api_key_here \
-  -e BODS_DATASET_ID=your_bods_dataset_id \
   -e BODS_LINE_REFS=your_bus_lines_reference_numbers \
   -e BODS_LOKI_URL=http://your-loki-instance \
   -e OTEL_TRACING_ENABLED=true \
-  -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=localhost:4318 \
+  -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318 \
   --restart unless-stopped \
-  ghcr.io/your-username/bods2loki:latest
+  ghcr.io/burnettdev/bods2loki:main
 ```
 
 ### Docker Compose
 
-For a complete setup with Loki, Grafana, and optional tracing:
+For a complete setup using Docker Compose with environment variables from a `.env` file:
 
 ```bash
 # Copy the example environment file
