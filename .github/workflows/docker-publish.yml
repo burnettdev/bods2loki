@@ -153,5 +153,5 @@ jobs:
         # against the sigstore community Fulcio instance.
         # We sign each tag with its own digest from the manifest
         run: |
-          DIGEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} --format '{{.Manifest.Digest}}')
+          DIGEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} --format '{{json .Manifest}}' | jq -r '.digest')
           echo "${TAGS}" | xargs -I {} cosign sign --yes {}@${DIGEST}
