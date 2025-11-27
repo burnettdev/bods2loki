@@ -187,12 +187,13 @@ When metrics is enabled, the application exports the following metrics:
 
 #### Example Configurations
 
-**Single Endpoint for Both Traces and Metrics:**
+**Single Endpoint for Both Traces and Metrics (Grafana Cloud):**
 ```bash
 OTEL_TRACING_ENABLED=true
 OTEL_METRICS_ENABLED=true
-OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway.grafana.net/otlp
-OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic base64creds
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-gb-south-1.grafana.net/otlp
+# Generate base64 credentials: echo -n "instanceId:apiToken" | base64
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <your-base64-encoded-credentials>
 ```
 
 **Separate Endpoints:**
