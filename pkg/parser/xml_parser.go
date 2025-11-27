@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"bods2loki/pkg/bods"
+	"bods2loki/pkg/metrics"
+	pkgotel "bods2loki/pkg/otel"
 	"bods2loki/pkg/types"
 
 	"github.com/clbanning/mxj/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -36,23 +40,47 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 	)
 	defer span.End()
 
+	start := time.Now()
+
+	// Record payload size
+	p.recordPayloadSize(ctx, len(busData.XMLData))
+
 	// Parse XML to map
 	xmlMap, err := mxj.NewMapXml([]byte(busData.XMLData))
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeParse, false)
+		p.recordParseDuration(ctx, busData.LineRef, start)
 		return nil, fmt.Errorf("failed to parse XML: %w", err)
 	}
+
+	// Add event for XML parsed
+	span.AddEvent("xml.parsed")
 
 	// Extract vehicle activities
 	vehicles, err := p.extractVehicleActivities(ctx, xmlMap)
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeParse, false)
+		p.recordParseDuration(ctx, busData.LineRef, start)
 		return nil, fmt.Errorf("failed to extract vehicle activities: %w", err)
 	}
+
+	// Add event for vehicles extracted
+	span.AddEvent("vehicles.extracted", trace.WithAttributes(
+		attribute.Int("count", len(vehicles)),
+	))
 
 	span.SetAttributes(
 		attribute.Int("vehicles_count", len(vehicles)),
 	)
+
+	// Record successful parse duration
+	p.recordParseDuration(ctx, busData.LineRef, start)
+
+	// Record vehicles extracted
+	p.recordVehiclesExtracted(ctx, len(vehicles))
+
+	// Set span status to Ok on success
+	pkgotel.SetSpanOk(span)
 
 	return &types.ParsedBusData{
 		LineRef:     busData.LineRef,
@@ -60,6 +88,36 @@ func (p *XMLParser) ParseBusData(ctx context.Context, busData *bods.BusData) (*t
 		VehicleData: vehicles,
 		RawData:     xmlMap,
 	}, nil
+}
+
+// recordParseDuration records the XML parsing duration metric
+func (p *XMLParser) recordParseDuration(ctx context.Context, lineRef string, start time.Time) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	duration := time.Since(start).Seconds()
+	metrics.XMLParseDuration.Record(ctx, duration, metric.WithAttributes(
+		attribute.String("line_ref", lineRef),
+	))
+}
+
+// recordPayloadSize records the XML payload size metric
+func (p *XMLParser) recordPayloadSize(ctx context.Context, size int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.ParserPayloadSize.Record(ctx, int64(size))
+}
+
+// recordVehiclesExtracted records the count of successfully extracted vehicles
+func (p *XMLParser) recordVehiclesExtracted(ctx context.Context, count int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.ParserVehiclesExtracted.Add(ctx, int64(count))
 }
 
 func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[string]interface{}) ([]types.VehicleActivity, error) {
@@ -72,16 +130,19 @@ func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[str
 	// The structure appears to be: Siri -> ServiceDelivery -> VehicleMonitoringDelivery -> VehicleActivity
 	siri, ok := xmlMap["Siri"].(map[string]interface{})
 	if !ok {
+		pkgotel.SetSpanOk(span)
 		return vehicles, nil
 	}
 
 	serviceDelivery, ok := siri["ServiceDelivery"].(map[string]interface{})
 	if !ok {
+		pkgotel.SetSpanOk(span)
 		return vehicles, nil
 	}
 
 	vmDelivery, ok := serviceDelivery["VehicleMonitoringDelivery"].(map[string]interface{})
 	if !ok {
+		pkgotel.SetSpanOk(span)
 		return vehicles, nil
 	}
 
@@ -93,6 +154,7 @@ func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[str
 	case map[string]interface{}:
 		vehicleActivities = []interface{}{va}
 	default:
+		pkgotel.SetSpanOk(span)
 		return vehicles, nil
 	}
 
@@ -112,6 +174,7 @@ func (p *XMLParser) extractVehicleActivities(ctx context.Context, xmlMap map[str
 		attribute.Int("extracted_vehicles", len(vehicles)),
 	)
 
+	pkgotel.SetSpanOk(span)
 	return vehicles, nil
 }
 
@@ -178,7 +241,7 @@ func (p *XMLParser) parseVehicleActivity(activity map[string]interface{}) *types
 		vehicle.DestinationAimedArrivalTime = destAimed
 	}
 
-	// Extract location data
+	// Extract location data (including Bearing and Velocity)
 	if location, ok := mvj["VehicleLocation"].(map[string]interface{}); ok {
 		if lng, ok := location["Longitude"].(string); ok {
 			if f, err := parseFloat(lng); err == nil {
@@ -190,6 +253,49 @@ func (p *XMLParser) parseVehicleActivity(activity map[string]interface{}) *types
 				vehicle.Latitude = f
 			}
 		}
+		// Extract bearing (vehicle heading direction in degrees)
+		if bearing, ok := location["Bearing"].(string); ok {
+			if f, err := parseFloat(bearing); err == nil {
+				vehicle.Bearing = f
+			}
+		}
+	}
+
+	// Extract velocity (speed in m/s) - can be at VehicleLocation level or MVJ level
+	if velocity, ok := mvj["Velocity"].(string); ok {
+		if f, err := parseFloat(velocity); err == nil {
+			vehicle.Velocity = f
+		}
+	}
+
+	// Extract occupancy status (full|seatsAvailable|standingAvailable)
+	if occupancy, ok := mvj["Occupancy"].(string); ok {
+		vehicle.Occupancy = occupancy
+	}
+
+	// Extract progress status
+	if progressStatus, ok := mvj["ProgressStatus"].(string); ok {
+		vehicle.ProgressStatus = progressStatus
+	}
+
+	// Extract published line name (customer-facing route name)
+	if publishedLineName, ok := mvj["PublishedLineName"].(string); ok {
+		vehicle.PublishedLineName = publishedLineName
+	}
+
+	// Extract block reference (operational block identifier)
+	if blockRef, ok := mvj["BlockRef"].(string); ok {
+		vehicle.BlockRef = blockRef
+	}
+
+	// Extract MonitoredCall (current/next stop with ETA)
+	if mc, ok := mvj["MonitoredCall"].(map[string]interface{}); ok {
+		vehicle.MonitoredCall = p.parseStopCall(mc)
+	}
+
+	// Extract OnwardCalls (future stops with predictions)
+	if oc, ok := mvj["OnwardCalls"].(map[string]interface{}); ok {
+		vehicle.OnwardCalls = p.parseOnwardCalls(oc)
 	}
 
 	// Generate bus image with line number and direction
@@ -222,6 +328,73 @@ func formatStopName(name string) string {
 	formatted = strings.ReplaceAll(formatted, "_", " ")
 
 	return formatted
+}
+
+// parseStopCall extracts stop call data from a MonitoredCall or OnwardCall element
+func (p *XMLParser) parseStopCall(callData map[string]interface{}) *types.StopCall {
+	call := &types.StopCall{}
+
+	if stopRef, ok := callData["StopPointRef"].(string); ok {
+		call.StopPointRef = stopRef
+	}
+	if stopName, ok := callData["StopPointName"].(string); ok {
+		call.StopPointName = formatStopName(stopName)
+	}
+	if aimed, ok := callData["AimedArrivalTime"].(string); ok {
+		call.AimedArrivalTime = aimed
+	}
+	if expected, ok := callData["ExpectedArrivalTime"].(string); ok {
+		call.ExpectedArrivalTime = expected
+	}
+	if aimed, ok := callData["AimedDepartureTime"].(string); ok {
+		call.AimedDepartureTime = aimed
+	}
+	if expected, ok := callData["ExpectedDepartureTime"].(string); ok {
+		call.ExpectedDepartureTime = expected
+	}
+	if visitNum, ok := callData["VisitNumber"].(string); ok {
+		if n, err := parseInt(visitNum); err == nil {
+			call.VisitNumber = n
+		}
+	}
+
+	// Return nil if no meaningful data was extracted
+	if call.StopPointRef == "" && call.StopPointName == "" {
+		return nil
+	}
+
+	return call
+}
+
+// parseOnwardCalls extracts an array of future stop calls
+func (p *XMLParser) parseOnwardCalls(onwardCallsData map[string]interface{}) []types.StopCall {
+	var calls []types.StopCall
+
+	// OnwardCall can be a single item or an array
+	switch oc := onwardCallsData["OnwardCall"].(type) {
+	case []interface{}:
+		for _, item := range oc {
+			if callMap, ok := item.(map[string]interface{}); ok {
+				if call := p.parseStopCall(callMap); call != nil {
+					calls = append(calls, *call)
+				}
+			}
+		}
+	case map[string]interface{}:
+		if call := p.parseStopCall(oc); call != nil {
+			calls = append(calls, *call)
+		}
+	}
+
+	return calls
+}
+
+// parseInt parses a string to int
+func parseInt(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	var n int
+	_, err := fmt.Sscanf(s, "%d", &n)
+	return n, err
 }
 
 // ToJSON converts ParsedBusData to formatted JSON

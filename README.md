@@ -29,7 +29,8 @@ LOG_LEVEL=info
 # OpenTelemetry Tracing Configuration (Optional)
 OTEL_TRACING_ENABLED=true
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp-gateway.example.com/otlp
-OTEL_TRACES_SAMPLER=always_on
+OTEL_TRACES_SAMPLER=parentbased_always_on
+# OTEL_TRACES_SAMPLER_ARG=0.1  # For ratio samplers: 0.1 = 10% sampling
 
 # Pyroscope Profiling Configuration (Optional)
 PYROSCOPE_PROFILING_ENABLED=true
@@ -81,7 +82,14 @@ The application supports distributed tracing using OpenTelemetry. This is option
 - `OTEL_EXPORTER_OTLP_ENDPOINT`: Alternative way to set the endpoint (will append `/v1/traces` automatically)
 - `OTEL_EXPORTER_OTLP_TRACES_HEADERS`: Headers for trace export (format: `key1=value1,key2=value2`)
 - `OTEL_EXPORTER_OTLP_TRACES_INSECURE`: Override secure/insecure mode (`true` for HTTP, `false` for HTTPS). If not set, determined automatically from URL scheme.
-- `OTEL_TRACES_SAMPLER`: Sampling strategy (`always_on`, `always_off`, `traceidratio`)
+- `OTEL_TRACES_SAMPLER`: Sampling strategy (default: `parentbased_always_on`)
+  - `always_on`: Sample all traces (100%)
+  - `always_off`: Disable tracing
+  - `traceidratio`: Sample a percentage of traces
+  - `parentbased_always_on`: Parent-based, samples all root spans
+  - `parentbased_always_off`: Parent-based, never samples root spans
+  - `parentbased_traceidratio`: Parent-based with ratio sampling for root spans
+- `OTEL_TRACES_SAMPLER_ARG`: Sampler argument (for ratio samplers: `0.0`-`1.0`, e.g., `0.1` = 10%)
 
 #### URL Format
 
@@ -135,6 +143,92 @@ PYROSCOPE_PROFILING_ENABLED=true
 PYROSCOPE_SERVER_ADDRESS=https://your-pyroscope-server.com
 PYROSCOPE_BASIC_AUTH_USER=your_username
 PYROSCOPE_BASIC_AUTH_PASSWORD=your_password
+```
+
+### OpenTelemetry Metrics Configuration
+
+The application supports metrics collection and export using OpenTelemetry. This is optional and disabled by default.
+
+#### Environment Variables
+
+**Feature Gate:**
+- `OTEL_METRICS_ENABLED`: Set to `true` or `1` to enable metrics
+
+**Base OTLP Configuration (applies to all signals unless overridden):**
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: Base URL for all signals (auto-appends `/v1/traces` and `/v1/metrics`)
+- `OTEL_EXPORTER_OTLP_PROTOCOL`: Transport protocol (`grpc`, `http/protobuf`, `http/json`). Default: `http/protobuf`
+- `OTEL_EXPORTER_OTLP_HEADERS`: Headers in `key=value` format (multiple: `key1=value1,key2=value2`)
+- `OTEL_EXPORTER_OTLP_TIMEOUT`: Export timeout in milliseconds (default: `10000` = 10 seconds)
+- `OTEL_EXPORTER_OTLP_INSECURE`: Disable TLS (`true` for HTTP, `false` for HTTPS)
+- `OTEL_EXPORTER_OTLP_COMPRESSION`: Compression (`none`, `gzip`)
+
+**Metrics-Specific Overrides (take precedence over base configuration):**
+- `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`: Full endpoint URL for metrics (use as-is, no path appending)
+- `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`: Protocol override for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_HEADERS`: Headers override for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT`: Timeout override for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_INSECURE`: Insecure mode override for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_COMPRESSION`: Compression override for metrics
+
+#### Available Metrics
+
+When metrics is enabled, the application exports the following metrics:
+
+**HTTP Client Metrics (OTEL Semantic Conventions):**
+- `http.client.request.duration`: Duration of HTTP client requests (histogram)
+- `http.client.request.body.size`: Size of HTTP request bodies (histogram)
+- `http.client.response.body.size`: Size of HTTP response bodies (histogram)
+
+**Pipeline Metrics:**
+- `pipeline.cycles.total`: Total pipeline processing cycles (counter)
+- `pipeline.cycle.duration`: Duration of pipeline cycles (histogram)
+- `pipeline.lines.processed`: Number of bus lines processed (counter)
+- `pipeline.vehicles.processed`: Number of vehicles processed (counter)
+- `pipeline.lines.in_flight`: Lines currently being processed (updown counter)
+
+**Parser Metrics:**
+- `xml.parse.duration`: Duration of XML parsing operations (histogram)
+
+**Runtime Metrics:**
+- `runtime.go.goroutines`: Current goroutine count (gauge)
+- `pipeline.last_success.timestamp`: Unix timestamp of last successful cycle (gauge)
+
+**Grafana Cloud Metrics** (when `GC_ENABLE_HOSTHOURS_METRIC=true`):
+- `traces_host_info`: Host presence metric for Application Observability billing (gauge, value=1)
+  - Attribute: `grafana.host.id` - unique host identifier matching `service.instance.id`
+
+#### Grafana Cloud Application Observability Billing
+
+When sending telemetry directly to Grafana Cloud's OTLP endpoint (without using Alloy or the OTel Collector), you need to enable the host hours billing metric:
+
+- `GC_ENABLE_HOSTHOURS_METRIC`: Set to `true` to emit the `traces_host_info` metric required for Application Observability billing
+
+This metric uses the same host identifier as `service.instance.id` (defaults to hostname) to correlate with your traces for accurate billing. Without this metric, Grafana Cloud will show warnings about missing billing telemetry.
+
+#### Example Configurations
+
+**Single Endpoint for Both Traces and Metrics (Grafana Cloud):**
+```bash
+OTEL_TRACING_ENABLED=true
+OTEL_METRICS_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-gb-south-1.grafana.net/otlp
+# Generate base64 credentials: echo -n "instanceId:apiToken" | base64
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <your-base64-encoded-credentials>
+```
+
+**Separate Endpoints:**
+```bash
+OTEL_TRACING_ENABLED=true
+OTEL_METRICS_ENABLED=true
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://tempo.example.com/otlp/v1/traces
+OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://mimir.example.com/otlp/v1/metrics
+```
+
+**gRPC Protocol:**
+```bash
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
+OTEL_EXPORTER_OTLP_INSECURE=true
 ```
 
 ## Installation
@@ -226,6 +320,7 @@ The `docker-compose.yml` passes the following environment variables from your `.
 - `BODS_API_KEY` - Your BODS API key
 
 **BODS Configuration:**
+- `BODS_DATASET_ID` - BODS dataset ID (default: `699`)
 - `BODS_LINE_REFS` - Bus line references (default: `49x`)
 - `BODS_INTERVAL` - Polling interval (default: `30s`)
 
@@ -240,9 +335,24 @@ The `docker-compose.yml` passes the following environment variables from your `.
 **OpenTelemetry Tracing:**
 - `OTEL_TRACING_ENABLED` - Enable tracing (default: `false`)
 - `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` - OTLP endpoint URL (default: `http://localhost:4318`)
-- `OTEL_TRACES_SAMPLER` - Sampling strategy (default: `always_on`)
+- `OTEL_TRACES_SAMPLER` - Sampling strategy (default: `parentbased_always_on`)
+- `OTEL_TRACES_SAMPLER_ARG` - Sampler argument (for ratio samplers: `0.0`-`1.0`)
 - `OTEL_EXPORTER_OTLP_TRACES_INSECURE` - Force insecure mode
 - `OTEL_EXPORTER_OTLP_TRACES_HEADERS` - Custom headers (format: `key1=value1,key2=value2`)
+
+**OpenTelemetry Metrics:**
+- `OTEL_METRICS_ENABLED` - Enable metrics (default: `false`)
+- `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` - OTLP endpoint URL for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_HEADERS` - Custom headers for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_INSECURE` - Force insecure mode for metrics
+
+**Shared OTEL Configuration:**
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - Base endpoint (auto-appends signal paths)
+- `OTEL_EXPORTER_OTLP_PROTOCOL` - Protocol (`grpc`, `http/protobuf`, `http/json`)
+- `OTEL_EXPORTER_OTLP_HEADERS` - Shared headers (`key=value` format)
+- `OTEL_EXPORTER_OTLP_TIMEOUT` - Export timeout in milliseconds (default: `10000`)
+- `OTEL_EXPORTER_OTLP_COMPRESSION` - Compression (`none`, `gzip`)
+- `OTEL_EXPORTER_OTLP_INSECURE` - Disable TLS verification
 
 **Pyroscope Profiling:**
 - `PYROSCOPE_PROFILING_ENABLED` - Enable profiling (default: `false`)
@@ -263,10 +373,11 @@ BODS_LOKI_URL=https://logs-prod-gb-south-1.grafana.net
 BODS_LOKI_USER=123456
 BODS_LOKI_PASSWORD=glc_your_token
 
-# Grafana Cloud Tempo (Tracing)
+# Grafana Cloud OTEL (Traces and Metrics via single endpoint)
 OTEL_TRACING_ENABLED=true
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp-gateway-prod-gb-south-1.grafana.net/otlp
-OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic base64encodedcreds
+OTEL_METRICS_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-gb-south-1.grafana.net/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic base64encodedcreds
 
 # Grafana Cloud Pyroscope (Profiling)
 PYROSCOPE_PROFILING_ENABLED=true

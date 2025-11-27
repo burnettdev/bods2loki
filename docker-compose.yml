@@ -6,6 +6,7 @@ services:
     environment:
       # BODS API Configuration
       - BODS_API_KEY=${BODS_API_KEY}
+      - BODS_DATASET_ID=${BODS_DATASET_ID:-699}
       - BODS_LINE_REFS=${BODS_LINE_REFS:-49x}
       - BODS_INTERVAL=${BODS_INTERVAL:-30s}
       
@@ -17,12 +18,34 @@ services:
       # Logging Configuration
       - LOG_LEVEL=${LOG_LEVEL:-info}
       
-      # OpenTelemetry Tracing Configuration (Optional)
+      # OpenTelemetry Configuration (Optional)
+      # Enable tracing and/or metrics
       - OTEL_TRACING_ENABLED=${OTEL_TRACING_ENABLED:-false}
-      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-http://localhost:4318}
-      - OTEL_TRACES_SAMPLER=${OTEL_TRACES_SAMPLER:-always_on}
-      - OTEL_EXPORTER_OTLP_TRACES_INSECURE=${OTEL_EXPORTER_OTLP_TRACES_INSECURE:-}
+      - OTEL_METRICS_ENABLED=${OTEL_METRICS_ENABLED:-false}
+
+      # Grafana Cloud Application Observability billing metric
+      # Enable when sending directly to Grafana Cloud OTLP endpoint (without Alloy/OTel Collector)
+      - GC_ENABLE_HOSTHOURS_METRIC=${GC_ENABLE_HOSTHOURS_METRIC:-false}
+
+      # Base endpoint for both traces and metrics (auto-appends /v1/traces and /v1/metrics)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
+      - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+      - OTEL_EXPORTER_OTLP_TIMEOUT=${OTEL_EXPORTER_OTLP_TIMEOUT:-10000}
+      - OTEL_EXPORTER_OTLP_COMPRESSION=${OTEL_EXPORTER_OTLP_COMPRESSION:-}
+      - OTEL_EXPORTER_OTLP_INSECURE=${OTEL_EXPORTER_OTLP_INSECURE:-}
+
+      # Signal-specific overrides (optional - override base settings per signal)
+      - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
       - OTEL_EXPORTER_OTLP_TRACES_HEADERS=${OTEL_EXPORTER_OTLP_TRACES_HEADERS:-}
+      - OTEL_EXPORTER_OTLP_TRACES_INSECURE=${OTEL_EXPORTER_OTLP_TRACES_INSECURE:-}
+      - OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=${OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_METRICS_HEADERS=${OTEL_EXPORTER_OTLP_METRICS_HEADERS:-}
+      - OTEL_EXPORTER_OTLP_METRICS_INSECURE=${OTEL_EXPORTER_OTLP_METRICS_INSECURE:-}
+
+      # Tracing sampler configuration (parentbased_always_on is OTEL default)
+      - OTEL_TRACES_SAMPLER=${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      - OTEL_TRACES_SAMPLER_ARG=${OTEL_TRACES_SAMPLER_ARG:-}
 
       # Pyroscope Profiling Configuration (Optional)
       - PYROSCOPE_PROFILING_ENABLED=${PYROSCOPE_PROFILING_ENABLED:-false}

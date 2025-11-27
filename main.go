@@ -4,17 +4,75 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"bods2loki/pkg/logging"
+	"bods2loki/pkg/metrics"
 	"bods2loki/pkg/pipeline"
 	"bods2loki/pkg/profiling"
 	"bods2loki/pkg/tracing"
 )
+
+// logConfiguration logs all configuration at startup (excluding sensitive values)
+func logConfiguration(cfg *pipeline.Config) {
+	// Base configuration
+	slog.Info("Base configuration",
+		"dry_run", cfg.DryRun,
+		"dataset_id", cfg.DatasetID,
+		"line_refs", cfg.LineRefs,
+		"loki_url", cfg.LokiURL,
+		"loki_user", cfg.LokiUser,
+		"interval", cfg.Interval,
+		"log_level", getEnv("LOG_LEVEL", "info"),
+	)
+
+	// Tracing configuration
+	tracingEnabled := os.Getenv("OTEL_TRACING_ENABLED") == "true"
+	slog.Info("Tracing configuration",
+		"enabled", tracingEnabled,
+		"sampler", getEnv("OTEL_TRACES_SAMPLER", "parentbased_always_on"),
+		"sampler_arg", os.Getenv("OTEL_TRACES_SAMPLER_ARG"),
+	)
+	if tracingEnabled {
+		slog.Info("Tracing exporter",
+			"endpoint", getEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
+			"protocol", getEnv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", getEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")),
+			"insecure", os.Getenv("OTEL_EXPORTER_OTLP_TRACES_INSECURE"),
+			"compression", os.Getenv("OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"),
+		)
+	}
+
+	// Metrics configuration
+	metricsEnabled := os.Getenv("OTEL_METRICS_ENABLED") == "true"
+	slog.Info("Metrics configuration",
+		"enabled", metricsEnabled,
+	)
+	if metricsEnabled {
+		slog.Info("Metrics exporter",
+			"endpoint", getEnv("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")),
+			"protocol", getEnv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", getEnv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")),
+			"insecure", os.Getenv("OTEL_EXPORTER_OTLP_METRICS_INSECURE"),
+			"compression", os.Getenv("OTEL_EXPORTER_OTLP_METRICS_COMPRESSION"),
+		)
+	}
+
+	// Profiling configuration
+	profilingEnabled := os.Getenv("PYROSCOPE_PROFILING_ENABLED") == "true"
+	slog.Info("Profiling configuration",
+		"enabled", profilingEnabled,
+	)
+	if profilingEnabled {
+		slog.Info("Profiling exporter",
+			"server_address", getEnv("PYROSCOPE_SERVER_ADDRESS", "http://localhost:4040"),
+			"application_name", getEnv("PYROSCOPE_APPLICATION_NAME", "bods2loki"),
+		)
+	}
+}
 
 func main() {
 	// Command line flags
@@ -58,6 +116,9 @@ func main() {
 
 	flag.Parse()
 
+	// Initialize logging first
+	logging.InitLogging()
+
 	// Validate required parameters
 	if *apiKey == "" {
 		fmt.Fprintf(os.Stderr, "Error: API key is required. Use --api-key or set BODS_API_KEY environment variable.\n\n")
@@ -68,7 +129,8 @@ func main() {
 	// Parse interval
 	intervalDuration, err := time.ParseDuration(*interval)
 	if err != nil {
-		log.Fatalf("Invalid interval format: %v", err)
+		slog.Error("Invalid interval format", "error", err)
+		os.Exit(1)
 	}
 
 	// Parse line references
@@ -80,14 +142,24 @@ func main() {
 	// Initialize tracing
 	shutdownTracing, err := tracing.InitTracing()
 	if err != nil {
-		log.Fatalf("Failed to initialize tracing: %v", err)
+		slog.Error("Failed to initialize tracing", "error", err)
+		os.Exit(1)
 	}
 	defer shutdownTracing()
+
+	// Initialize metrics
+	shutdownMetrics, err := metrics.InitMetrics()
+	if err != nil {
+		slog.Error("Failed to initialize metrics", "error", err)
+		os.Exit(1)
+	}
+	defer shutdownMetrics()
 
 	// Initialize profiling
 	shutdownProfiling, err := profiling.InitProfiling()
 	if err != nil {
-		log.Fatalf("Failed to initialize profiling: %v", err)
+		slog.Error("Failed to initialize profiling", "error", err)
+		os.Exit(1)
 	}
 	defer shutdownProfiling()
 
@@ -106,19 +178,20 @@ func main() {
 	// Create pipeline
 	pipelineInstance, err := pipeline.New(config)
 	if err != nil {
-		log.Fatalf("Failed to create pipeline: %v", err)
+		slog.Error("Failed to create pipeline", "error", err)
+		os.Exit(1)
 	}
 
-	// Print startup information
+	// Log configuration at startup
+	logConfiguration(&config)
+
+	// Print startup mode information
 	if *dryRun {
-		log.Printf("Starting BODS to Loki pipeline in DRY RUN mode")
-		log.Printf("Data will be printed to stdout, not sent to Loki")
+		slog.Info("Starting BODS to Loki pipeline in DRY RUN mode")
+		slog.Info("Data will be printed to stdout, not sent to Loki")
 	} else {
-		log.Printf("Starting BODS to Loki pipeline in PRODUCTION mode")
-		log.Printf("Data will be sent to Loki at: %s", *lokiURL)
+		slog.Info("Starting BODS to Loki pipeline in PRODUCTION mode")
 	}
-	log.Printf("Monitoring lines: %v", lineRefsList)
-	log.Printf("Polling interval: %v", intervalDuration)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -137,23 +210,24 @@ func main() {
 	// Wait for shutdown signal or error
 	select {
 	case sig := <-sigChan:
-		log.Printf("Received signal %v, shutting down gracefully...", sig)
+		slog.Info("Received signal, shutting down gracefully", "signal", sig)
 		cancel()
 		// Wait a bit for graceful shutdown
 		select {
 		case <-time.After(5 * time.Second):
-			log.Println("Shutdown timeout, forcing exit")
+			slog.Warn("Shutdown timeout, forcing exit")
 		case <-errChan:
-			log.Println("Pipeline stopped")
+			slog.Info("Pipeline stopped")
 		}
 	case err := <-errChan:
 		if err != nil && err != context.Canceled {
-			log.Fatalf("Pipeline error: %v", err)
+			slog.Error("Pipeline error", "error", err)
+			os.Exit(1)
 		}
-		log.Println("Pipeline stopped")
+		slog.Info("Pipeline stopped")
 	}
 
-	log.Println("BODS to Loki pipeline shutdown complete")
+	slog.Info("BODS to Loki pipeline shutdown complete")
 }
 
 // getEnv returns the value of an environment variable or a default value if not set
