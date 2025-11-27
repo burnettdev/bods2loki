@@ -10,6 +10,7 @@ import (
 	"bods2loki/pkg/otel"
 
 	otelapi "go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
@@ -78,6 +79,11 @@ func InitMetrics() (func(), error) {
 	// Register runtime metrics
 	if err := registerRuntimeMetrics(); err != nil {
 		slog.Warn("Failed to register runtime metrics", "error", err)
+	}
+
+	// Register Grafana Cloud billing metrics (if enabled)
+	if err := registerGrafanaCloudMetrics(); err != nil {
+		slog.Warn("Failed to register Grafana Cloud metrics", "error", err)
 	}
 
 	slog.Debug("OpenTelemetry metrics initialized",
@@ -250,4 +256,32 @@ func RecordLastSuccessTimestamp() {
 // IsEnabled returns true if metrics collection is enabled
 func IsEnabled() bool {
 	return Meter != nil
+}
+
+// registerGrafanaCloudMetrics registers Grafana Cloud specific metrics for Application Observability billing.
+// When GC_ENABLE_HOSTHOURS_METRIC is enabled, emits the traces_host_info metric required for billing.
+func registerGrafanaCloudMetrics() error {
+	if !otel.IsGrafanaCloudHostMetricEnabled() {
+		return nil
+	}
+
+	hostID := otel.GetHostID()
+
+	_, err := Meter.Int64ObservableGauge(
+		"traces_host_info",
+		metric.WithDescription("Host info metric for Grafana Cloud Application Observability billing"),
+		metric.WithUnit("{host}"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			o.Observe(1, metric.WithAttributes(
+				attribute.String("grafana.host.id", hostID),
+			))
+			return nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	slog.Info("Grafana Cloud host hours metric enabled", "host_id", hostID)
+	return nil
 }

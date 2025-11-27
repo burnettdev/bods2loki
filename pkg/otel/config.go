@@ -46,6 +46,12 @@ func IsMetricsEnabled() bool {
 	return isTrue(getEnv("OTEL_METRICS_ENABLED", "false"))
 }
 
+// IsGrafanaCloudHostMetricEnabled returns true if the Grafana Cloud host hours billing metric is enabled.
+// When enabled, emits the traces_host_info metric required for Application Observability billing.
+func IsGrafanaCloudHostMetricEnabled() bool {
+	return isTrue(getEnv("GC_ENABLE_HOSTHOURS_METRIC", "false"))
+}
+
 // GetExporterConfig returns the exporter configuration for a specific signal type.
 // It resolves signal-specific environment variables with fallback to base variables.
 func GetExporterConfig(signal SignalType) ExporterConfig {

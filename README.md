@@ -193,6 +193,18 @@ When metrics is enabled, the application exports the following metrics:
 - `runtime.go.goroutines`: Current goroutine count (gauge)
 - `pipeline.last_success.timestamp`: Unix timestamp of last successful cycle (gauge)
 
+**Grafana Cloud Metrics** (when `GC_ENABLE_HOSTHOURS_METRIC=true`):
+- `traces_host_info`: Host presence metric for Application Observability billing (gauge, value=1)
+  - Attribute: `grafana.host.id` - unique host identifier matching `service.instance.id`
+
+#### Grafana Cloud Application Observability Billing
+
+When sending telemetry directly to Grafana Cloud's OTLP endpoint (without using Alloy or the OTel Collector), you need to enable the host hours billing metric:
+
+- `GC_ENABLE_HOSTHOURS_METRIC`: Set to `true` to emit the `traces_host_info` metric required for Application Observability billing
+
+This metric uses the same host identifier as `service.instance.id` (defaults to hostname) to correlate with your traces for accurate billing. Without this metric, Grafana Cloud will show warnings about missing billing telemetry.
+
 #### Example Configurations
 
 **Single Endpoint for Both Traces and Metrics (Grafana Cloud):**

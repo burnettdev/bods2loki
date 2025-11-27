@@ -53,6 +53,13 @@ func getServiceInstanceID() string {
 	return fmt.Sprintf("bods2loki-%d", os.Getpid())
 }
 
+// GetHostID returns the host identifier used for Grafana Cloud billing correlation.
+// This value is used for the grafana.host.id attribute in the traces_host_info metric
+// and should match the service.instance.id resource attribute for proper correlation.
+func GetHostID() string {
+	return getServiceInstanceID()
+}
+
 // NewResource creates a shared resource with service and runtime attributes.
 // This resource is used by both tracing and metrics providers.
 // Includes attributes required for Grafana Cloud Application Observability.

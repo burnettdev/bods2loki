@@ -23,6 +23,10 @@ services:
       - OTEL_TRACING_ENABLED=${OTEL_TRACING_ENABLED:-false}
       - OTEL_METRICS_ENABLED=${OTEL_METRICS_ENABLED:-false}
 
+      # Grafana Cloud Application Observability billing metric
+      # Enable when sending directly to Grafana Cloud OTLP endpoint (without Alloy/OTel Collector)
+      - GC_ENABLE_HOSTHOURS_METRIC=${GC_ENABLE_HOSTHOURS_METRIC:-false}
+
       # Base endpoint for both traces and metrics (auto-appends /v1/traces and /v1/metrics)
       - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}
       - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
