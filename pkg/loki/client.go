@@ -6,20 +6,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
+	"bods2loki/pkg/metrics"
 	"bods2loki/pkg/types"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
+	serverHost string
 	username   string
 	password   string
 	tracer     trace.Tracer
@@ -41,9 +45,17 @@ func NewClient(baseURL, username, password string) *Client {
 		Timeout:   30 * time.Second,
 	}
 
+	// Extract server host for metrics
+	parsedURL, _ := url.Parse(baseURL)
+	serverHost := ""
+	if parsedURL != nil {
+		serverHost = parsedURL.Host
+	}
+
 	return &Client{
 		httpClient: client,
 		baseURL:    baseURL,
+		serverHost: serverHost,
 		username:   username,
 		password:   password,
 		tracer:     otel.Tracer("loki-client"),
@@ -65,6 +77,8 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 		),
 	)
 	defer span.End()
+
+	start := time.Now()
 
 	// Create individual log entries for each vehicle
 	var logValues [][]string
@@ -114,11 +128,14 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 		return fmt.Errorf("failed to marshal Loki request: %w", err)
 	}
 
+	requestSize := int64(len(reqBody))
+
 	// Send to Loki
-	url := fmt.Sprintf("%s/loki/api/v1/push", c.baseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+	reqURL := fmt.Sprintf("%s/loki/api/v1/push", c.baseURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(reqBody))
 	if err != nil {
 		span.RecordError(err)
+		c.recordHTTPMetrics(ctx, start, 0, requestSize, "request_creation_error")
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -139,7 +156,7 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	}
 
 	span.SetAttributes(
-		attribute.String("http.url", url),
+		attribute.String("http.url", reqURL),
 		attribute.String("http.method", "POST"),
 		attribute.Int("request.size_bytes", len(reqBody)),
 		attribute.Int("log_lines_count", len(logValues)),
@@ -148,6 +165,7 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		span.RecordError(err)
+		c.recordHTTPMetrics(ctx, start, 0, requestSize, "network_error")
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -159,8 +177,61 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		err := fmt.Errorf("Loki returned status %d", resp.StatusCode)
 		span.RecordError(err)
+		c.recordHTTPMetrics(ctx, start, resp.StatusCode, requestSize, "")
 		return err
 	}
 
+	// Record successful metrics
+	c.recordHTTPMetrics(ctx, start, resp.StatusCode, requestSize, "")
+
+	// Record vehicles sent to Loki
+	c.recordVehiclesSent(ctx, data.LineRef, len(data.VehicleData))
+
 	return nil
+}
+
+// recordHTTPMetrics records HTTP client metrics for Loki API calls
+func (c *Client) recordHTTPMetrics(ctx context.Context, start time.Time, statusCode int, requestSize int64, errorType string) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	duration := time.Since(start).Seconds()
+
+	// Common attributes
+	attrs := []attribute.KeyValue{
+		attribute.String("http.request.method", "POST"),
+		attribute.String("server.address", c.serverHost),
+		attribute.String("service.target", "loki"),
+	}
+
+	if statusCode > 0 {
+		attrs = append(attrs, attribute.Int("http.response.status_code", statusCode))
+	}
+	if errorType != "" {
+		attrs = append(attrs, attribute.String("error.type", errorType))
+	}
+
+	// Record duration
+	metrics.HTTPClientRequestDuration.Record(ctx, duration, metric.WithAttributes(attrs...))
+
+	// Record request body size
+	if requestSize > 0 {
+		metrics.HTTPClientRequestBodySize.Record(ctx, requestSize, metric.WithAttributes(
+			attribute.String("server.address", c.serverHost),
+			attribute.String("service.target", "loki"),
+		))
+	}
+}
+
+// recordVehiclesSent records vehicles sent to Loki
+func (c *Client) recordVehiclesSent(ctx context.Context, lineRef string, count int) {
+	if !metrics.IsEnabled() {
+		return
+	}
+
+	metrics.PipelineVehiclesProcessed.Add(ctx, int64(count), metric.WithAttributes(
+		attribute.String("line_ref", lineRef),
+		attribute.String("stage", "sent_to_loki"),
+	))
 }
