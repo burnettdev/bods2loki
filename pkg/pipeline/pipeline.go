@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"bods2loki/pkg/bods"
 	"bods2loki/pkg/loki"
 	"bods2loki/pkg/metrics"
+	pkgotel "bods2loki/pkg/otel"
 	"bods2loki/pkg/parser"
 	"bods2loki/pkg/types"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/baggage"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -96,6 +99,16 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 	)
 	defer span.End()
 
+	// Add baggage for downstream spans
+	member, _ := baggage.NewMember("pipeline.dry_run", strconv.FormatBool(p.config.DryRun))
+	bag, _ := baggage.New(member)
+	ctx = baggage.ContextWithBaggage(ctx, bag)
+
+	// Add event for cycle start
+	span.AddEvent("cycle.started", trace.WithAttributes(
+		attribute.Int("lines.count", len(p.config.LineRefs)),
+	))
+
 	start := time.Now()
 
 	// Process all lines concurrently
@@ -164,6 +177,11 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 			totalVehicles += len(result.data.VehicleData)
 			// Record line success
 			p.recordLineProcessed(ctx, result.lineRef, "success", "")
+			// Add event for line completion
+			span.AddEvent("line.completed", trace.WithAttributes(
+				attribute.String("line_ref", result.lineRef),
+				attribute.Int("vehicles.count", len(result.data.VehicleData)),
+			))
 		}
 	}
 
@@ -193,9 +211,13 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 
 	// Return error only if all lines failed
 	if len(errors) == len(p.config.LineRefs) {
-		return fmt.Errorf("all lines failed: %v", errors)
+		err := fmt.Errorf("all lines failed: %v", errors)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, true)
+		return err
 	}
 
+	// Set span status to Ok on success (even partial success)
+	pkgotel.SetSpanOk(span)
 	return nil
 }
 
@@ -241,7 +263,7 @@ func (p *Pipeline) handleDryRun(ctx context.Context, data *types.ParsedBusData) 
 		// Convert to JSON
 		vehicleJSON, err := json.Marshal(entry)
 		if err != nil {
-			span.RecordError(err)
+			pkgotel.RecordError(span, err, pkgotel.ErrorTypeParse, false)
 			return fmt.Errorf("failed to marshal vehicle JSON for dry run: %w", err)
 		}
 
@@ -254,6 +276,7 @@ func (p *Pipeline) handleDryRun(ctx context.Context, data *types.ParsedBusData) 
 		attribute.Int("vehicles_printed", len(data.VehicleData)),
 	)
 
+	pkgotel.SetSpanOk(span)
 	return nil
 }
 
@@ -263,12 +286,12 @@ func (p *Pipeline) sendToLoki(ctx context.Context, data *types.ParsedBusData) er
 
 	if p.lokiClient == nil {
 		err := fmt.Errorf("loki client not initialized")
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeValidation, false)
 		return err
 	}
 
 	if err := p.lokiClient.SendBusData(ctx, data); err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, true)
 		return fmt.Errorf("failed to send data to Loki: %w", err)
 	}
 
@@ -278,6 +301,7 @@ func (p *Pipeline) sendToLoki(ctx context.Context, data *types.ParsedBusData) er
 		attribute.Int("vehicles_sent", len(data.VehicleData)),
 	)
 
+	pkgotel.SetSpanOk(span)
 	return nil
 }
 
