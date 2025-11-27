@@ -6,7 +6,10 @@ COPY go.mod go.sum ./
 RUN go mod download && go mod tidy
 
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o app .
+
+# VERSION is injected at build time for Grafana Cloud App Observability
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X bods2loki/pkg/otel.Version=${VERSION}" -o app .
 
 FROM debian:12.12-slim
 
