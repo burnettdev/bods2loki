@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"bods2loki/pkg/metrics"
+	pkgotel "bods2loki/pkg/otel"
 	"bods2loki/pkg/types"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -74,6 +75,7 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 		trace.WithAttributes(
 			attribute.String("line_ref", data.LineRef),
 			attribute.Int("vehicles_count", len(data.VehicleData)),
+			attribute.String("server.address", c.serverHost),
 		),
 	)
 	defer span.End()
@@ -96,7 +98,7 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 		// Convert to JSON
 		vehicleJSON, err := json.Marshal(entry)
 		if err != nil {
-			span.RecordError(err)
+			pkgotel.RecordError(span, err, pkgotel.ErrorTypeParse, false)
 			return fmt.Errorf("failed to marshal vehicle JSON: %w", err)
 		}
 
@@ -106,6 +108,11 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 			string(vehicleJSON),
 		})
 	}
+
+	// Add event for batch preparation
+	span.AddEvent("batch.prepared", trace.WithAttributes(
+		attribute.Int("log_lines.count", len(logValues)),
+	))
 
 	// Create Loki push request with individual log lines
 	lokiReq := PushRequest{
@@ -124,7 +131,7 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	// Marshal Loki request
 	reqBody, err := json.Marshal(lokiReq)
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeParse, false)
 		return fmt.Errorf("failed to marshal Loki request: %w", err)
 	}
 
@@ -134,7 +141,7 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	reqURL := fmt.Sprintf("%s/loki/api/v1/push", c.baseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(reqBody))
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, false)
 		c.recordHTTPMetrics(ctx, start, 0, requestSize, "request_creation_error")
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -145,6 +152,9 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 	// Add basic authentication if credentials are provided
 	if c.username != "" && c.password != "" {
 		req.SetBasicAuth(c.username, c.password)
+		span.AddEvent("auth.applied", trace.WithAttributes(
+			attribute.String("auth.type", "basic"),
+		))
 		span.SetAttributes(
 			attribute.Bool("auth.enabled", true),
 			attribute.String("auth.username", c.username),
@@ -155,28 +165,39 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 		)
 	}
 
+	// Use OTEL semantic conventions for HTTP attributes
 	span.SetAttributes(
-		attribute.String("http.url", reqURL),
-		attribute.String("http.method", "POST"),
-		attribute.Int("request.size_bytes", len(reqBody)),
+		attribute.String("url.full", reqURL),
+		attribute.String("http.request.method", "POST"),
+		attribute.Int64("http.request.body.size", requestSize),
 		attribute.Int("log_lines_count", len(logValues)),
 	)
 
+	// Add span event for request start
+	span.AddEvent("http.request.started", trace.WithAttributes(
+		attribute.String("http.request.method", "POST"),
+	))
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeNetwork, true)
 		c.recordHTTPMetrics(ctx, start, 0, requestSize, "network_error")
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Add span event for response received
+	span.AddEvent("http.response.received", trace.WithAttributes(
+		attribute.Int("http.response.status_code", resp.StatusCode),
+	))
+
 	span.SetAttributes(
-		attribute.Int("http.status_code", resp.StatusCode),
+		attribute.Int("http.response.status_code", resp.StatusCode),
 	)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		err := fmt.Errorf("Loki returned status %d", resp.StatusCode)
-		span.RecordError(err)
+		pkgotel.RecordError(span, err, pkgotel.ErrorTypeHTTP, false)
 		c.recordHTTPMetrics(ctx, start, resp.StatusCode, requestSize, "")
 		return err
 	}
@@ -186,6 +207,9 @@ func (c *Client) SendBusData(ctx context.Context, data *types.ParsedBusData) err
 
 	// Record vehicles sent to Loki
 	c.recordVehiclesSent(ctx, data.LineRef, len(data.VehicleData))
+
+	// Set span status to Ok on success
+	pkgotel.SetSpanOk(span)
 
 	return nil
 }
