@@ -299,6 +299,7 @@ The `docker-compose.yml` passes the following environment variables from your `.
 - `BODS_API_KEY` - Your BODS API key
 
 **BODS Configuration:**
+- `BODS_DATASET_ID` - BODS dataset ID (default: `699`)
 - `BODS_LINE_REFS` - Bus line references (default: `49x`)
 - `BODS_INTERVAL` - Polling interval (default: `30s`)
 
@@ -329,6 +330,7 @@ The `docker-compose.yml` passes the following environment variables from your `.
 - `OTEL_EXPORTER_OTLP_HEADERS` - Shared headers
 - `OTEL_EXPORTER_OTLP_TIMEOUT` - Export timeout
 - `OTEL_EXPORTER_OTLP_COMPRESSION` - Compression (`none`, `gzip`)
+- `OTEL_EXPORTER_OTLP_INSECURE` - Disable TLS verification
 
 **Pyroscope Profiling:**
 - `PYROSCOPE_PROFILING_ENABLED` - Enable profiling (default: `false`)
