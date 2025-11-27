@@ -137,6 +137,79 @@ PYROSCOPE_BASIC_AUTH_USER=your_username
 PYROSCOPE_BASIC_AUTH_PASSWORD=your_password
 ```
 
+### OpenTelemetry Metrics Configuration
+
+The application supports metrics collection and export using OpenTelemetry. This is optional and disabled by default.
+
+#### Environment Variables
+
+**Feature Gate:**
+- `OTEL_METRICS_ENABLED`: Set to `true` or `1` to enable metrics
+
+**Base OTLP Configuration (applies to all signals unless overridden):**
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: Base URL for all signals (auto-appends `/v1/traces` and `/v1/metrics`)
+- `OTEL_EXPORTER_OTLP_PROTOCOL`: Transport protocol (`grpc`, `http/protobuf`, `http/json`). Default: `http/protobuf`
+- `OTEL_EXPORTER_OTLP_HEADERS`: Headers in `key1=value1,key2=value2` format
+- `OTEL_EXPORTER_OTLP_TIMEOUT`: Export timeout (default: `10s`)
+- `OTEL_EXPORTER_OTLP_INSECURE`: Disable TLS (`true` for HTTP, `false` for HTTPS)
+- `OTEL_EXPORTER_OTLP_COMPRESSION`: Compression (`none`, `gzip`)
+
+**Metrics-Specific Overrides (take precedence over base configuration):**
+- `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`: Full endpoint URL for metrics (use as-is, no path appending)
+- `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`: Protocol override for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_HEADERS`: Headers override for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT`: Timeout override for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_INSECURE`: Insecure mode override for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_COMPRESSION`: Compression override for metrics
+
+#### Available Metrics
+
+When metrics is enabled, the application exports the following metrics:
+
+**HTTP Client Metrics (OTEL Semantic Conventions):**
+- `http.client.request.duration`: Duration of HTTP client requests (histogram)
+- `http.client.request.body.size`: Size of HTTP request bodies (histogram)
+- `http.client.response.body.size`: Size of HTTP response bodies (histogram)
+
+**Pipeline Metrics:**
+- `pipeline.cycles.total`: Total pipeline processing cycles (counter)
+- `pipeline.cycle.duration`: Duration of pipeline cycles (histogram)
+- `pipeline.lines.processed`: Number of bus lines processed (counter)
+- `pipeline.vehicles.processed`: Number of vehicles processed (counter)
+- `pipeline.lines.in_flight`: Lines currently being processed (updown counter)
+
+**Parser Metrics:**
+- `xml.parse.duration`: Duration of XML parsing operations (histogram)
+
+**Runtime Metrics:**
+- `runtime.go.goroutines`: Current goroutine count (gauge)
+- `pipeline.last_success.timestamp`: Unix timestamp of last successful cycle (gauge)
+
+#### Example Configurations
+
+**Single Endpoint for Both Traces and Metrics:**
+```bash
+OTEL_TRACING_ENABLED=true
+OTEL_METRICS_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway.grafana.net/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic base64creds
+```
+
+**Separate Endpoints:**
+```bash
+OTEL_TRACING_ENABLED=true
+OTEL_METRICS_ENABLED=true
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://tempo.example.com/otlp/v1/traces
+OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=https://mimir.example.com/otlp/v1/metrics
+```
+
+**gRPC Protocol:**
+```bash
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_EXPORTER_OTLP_ENDPOINT=localhost:4317
+OTEL_EXPORTER_OTLP_INSECURE=true
+```
+
 ## Installation
 
 ### Building from Source
@@ -244,6 +317,19 @@ The `docker-compose.yml` passes the following environment variables from your `.
 - `OTEL_EXPORTER_OTLP_TRACES_INSECURE` - Force insecure mode
 - `OTEL_EXPORTER_OTLP_TRACES_HEADERS` - Custom headers (format: `key1=value1,key2=value2`)
 
+**OpenTelemetry Metrics:**
+- `OTEL_METRICS_ENABLED` - Enable metrics (default: `false`)
+- `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` - OTLP endpoint URL for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_HEADERS` - Custom headers for metrics
+- `OTEL_EXPORTER_OTLP_METRICS_INSECURE` - Force insecure mode for metrics
+
+**Shared OTEL Configuration:**
+- `OTEL_EXPORTER_OTLP_ENDPOINT` - Base endpoint (auto-appends signal paths)
+- `OTEL_EXPORTER_OTLP_PROTOCOL` - Protocol (`grpc`, `http/protobuf`, `http/json`)
+- `OTEL_EXPORTER_OTLP_HEADERS` - Shared headers
+- `OTEL_EXPORTER_OTLP_TIMEOUT` - Export timeout
+- `OTEL_EXPORTER_OTLP_COMPRESSION` - Compression (`none`, `gzip`)
+
 **Pyroscope Profiling:**
 - `PYROSCOPE_PROFILING_ENABLED` - Enable profiling (default: `false`)
 - `PYROSCOPE_SERVER_ADDRESS` - Pyroscope server URL (default: `http://localhost:4040`)
@@ -263,10 +349,11 @@ BODS_LOKI_URL=https://logs-prod-gb-south-1.grafana.net
 BODS_LOKI_USER=123456
 BODS_LOKI_PASSWORD=glc_your_token
 
-# Grafana Cloud Tempo (Tracing)
+# Grafana Cloud OTEL (Traces and Metrics via single endpoint)
 OTEL_TRACING_ENABLED=true
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp-gateway-prod-gb-south-1.grafana.net/otlp
-OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic base64encodedcreds
+OTEL_METRICS_ENABLED=true
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-prod-gb-south-1.grafana.net/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic base64encodedcreds
 
 # Grafana Cloud Pyroscope (Profiling)
 PYROSCOPE_PROFILING_ENABLED=true
