@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"bods2loki/pkg/bods"
@@ -64,21 +64,21 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	ticker := time.NewTicker(p.config.Interval)
 	defer ticker.Stop()
 
-	log.Printf("Pipeline started - polling every %v", p.config.Interval)
+	slog.Info("Pipeline started", "interval", p.config.Interval)
 
 	// Process immediately on start
 	if err := p.processOnce(ctx); err != nil {
-		log.Printf("Error in initial processing: %v", err)
+		slog.Error("Error in initial processing", "error", err)
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Pipeline stopped")
+			slog.Info("Pipeline stopped")
 			return ctx.Err()
 		case <-ticker.C:
 			if err := p.processOnce(ctx); err != nil {
-				log.Printf("Error processing: %v", err)
+				slog.Error("Error processing", "error", err)
 			}
 		}
 	}
@@ -146,7 +146,7 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 		result := <-results
 		if result.err != nil {
 			errors = append(errors, result.err)
-			log.Printf("Error processing line %s: %v", result.lineRef, result.err)
+			slog.Error("Error processing line", "line", result.lineRef, "error", result.err)
 		} else {
 			allData = append(allData, result.data)
 			totalVehicles += len(result.data.VehicleData)
@@ -164,11 +164,11 @@ func (p *Pipeline) processOnce(ctx context.Context) error {
 	for _, data := range allData {
 		if p.config.DryRun {
 			if err := p.handleDryRun(ctx, data); err != nil {
-				log.Printf("Error in dry run for line %s: %v", data.LineRef, err)
+				slog.Error("Error in dry run", "line", data.LineRef, "error", err)
 			}
 		} else {
 			if err := p.sendToLoki(ctx, data); err != nil {
-				log.Printf("Error sending to Loki for line %s: %v", data.LineRef, err)
+				slog.Error("Error sending to Loki", "line", data.LineRef, "error", err)
 			}
 		}
 	}
@@ -261,8 +261,7 @@ func (p *Pipeline) sendToLoki(ctx context.Context, data *types.ParsedBusData) er
 		return fmt.Errorf("failed to send data to Loki: %w", err)
 	}
 
-	log.Printf("Successfully sent %d individual vehicle log lines to Loki for line %s",
-		len(data.VehicleData), data.LineRef)
+	slog.Debug("Successfully sent vehicle log lines to Loki", "count", len(data.VehicleData), "line", data.LineRef)
 
 	span.SetAttributes(
 		attribute.Int("vehicles_sent", len(data.VehicleData)),

@@ -1,7 +1,7 @@
 package profiling
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -11,7 +11,7 @@ import (
 func InitProfiling() (func(), error) {
 	// Check if profiling is enabled
 	if enabled := getEnv("PYROSCOPE_PROFILING_ENABLED", "false"); !isTrue(enabled) {
-		log.Println("Pyroscope profiling is disabled")
+		slog.Debug("Pyroscope profiling is disabled")
 		return func() {}, nil
 	}
 
@@ -45,19 +45,19 @@ func InitProfiling() (func(), error) {
 	// Start profiling
 	profiler, err := pyroscope.Start(config)
 	if err != nil {
-		log.Printf("Failed to start Pyroscope profiler: %v", err)
+		slog.Warn("Failed to start Pyroscope profiler", "error", err)
 		// Return a noop shutdown function if profiler creation fails
 		return func() {}, nil
 	}
 
-	log.Printf("Pyroscope profiling started - server: %s, application: %s", serverAddress, applicationName)
+	slog.Debug("Pyroscope profiling started", "server", serverAddress, "application", applicationName)
 
 	// Return shutdown function
 	return func() {
 		if err := profiler.Stop(); err != nil {
-			log.Printf("Error stopping Pyroscope profiler: %v", err)
+			slog.Error("Error stopping Pyroscope profiler", "error", err)
 		} else {
-			log.Println("Pyroscope profiler stopped")
+			slog.Debug("Pyroscope profiler stopped")
 		}
 	}, nil
 }

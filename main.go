@@ -4,13 +4,14 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"bods2loki/pkg/logging"
 	"bods2loki/pkg/pipeline"
 	"bods2loki/pkg/profiling"
 	"bods2loki/pkg/tracing"
@@ -58,6 +59,9 @@ func main() {
 
 	flag.Parse()
 
+	// Initialize logging first
+	logging.InitLogging()
+
 	// Validate required parameters
 	if *apiKey == "" {
 		fmt.Fprintf(os.Stderr, "Error: API key is required. Use --api-key or set BODS_API_KEY environment variable.\n\n")
@@ -68,7 +72,8 @@ func main() {
 	// Parse interval
 	intervalDuration, err := time.ParseDuration(*interval)
 	if err != nil {
-		log.Fatalf("Invalid interval format: %v", err)
+		slog.Error("Invalid interval format", "error", err)
+		os.Exit(1)
 	}
 
 	// Parse line references
@@ -80,14 +85,16 @@ func main() {
 	// Initialize tracing
 	shutdownTracing, err := tracing.InitTracing()
 	if err != nil {
-		log.Fatalf("Failed to initialize tracing: %v", err)
+		slog.Error("Failed to initialize tracing", "error", err)
+		os.Exit(1)
 	}
 	defer shutdownTracing()
 
 	// Initialize profiling
 	shutdownProfiling, err := profiling.InitProfiling()
 	if err != nil {
-		log.Fatalf("Failed to initialize profiling: %v", err)
+		slog.Error("Failed to initialize profiling", "error", err)
+		os.Exit(1)
 	}
 	defer shutdownProfiling()
 
@@ -106,19 +113,20 @@ func main() {
 	// Create pipeline
 	pipelineInstance, err := pipeline.New(config)
 	if err != nil {
-		log.Fatalf("Failed to create pipeline: %v", err)
+		slog.Error("Failed to create pipeline", "error", err)
+		os.Exit(1)
 	}
 
 	// Print startup information
 	if *dryRun {
-		log.Printf("Starting BODS to Loki pipeline in DRY RUN mode")
-		log.Printf("Data will be printed to stdout, not sent to Loki")
+		slog.Info("Starting BODS to Loki pipeline in DRY RUN mode")
+		slog.Info("Data will be printed to stdout, not sent to Loki")
 	} else {
-		log.Printf("Starting BODS to Loki pipeline in PRODUCTION mode")
-		log.Printf("Data will be sent to Loki at: %s", *lokiURL)
+		slog.Info("Starting BODS to Loki pipeline in PRODUCTION mode")
+		slog.Info("Data will be sent to Loki", "url", *lokiURL)
 	}
-	log.Printf("Monitoring lines: %v", lineRefsList)
-	log.Printf("Polling interval: %v", intervalDuration)
+	slog.Info("Monitoring lines", "lines", lineRefsList)
+	slog.Info("Polling interval", "interval", intervalDuration)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -137,23 +145,24 @@ func main() {
 	// Wait for shutdown signal or error
 	select {
 	case sig := <-sigChan:
-		log.Printf("Received signal %v, shutting down gracefully...", sig)
+		slog.Info("Received signal, shutting down gracefully", "signal", sig)
 		cancel()
 		// Wait a bit for graceful shutdown
 		select {
 		case <-time.After(5 * time.Second):
-			log.Println("Shutdown timeout, forcing exit")
+			slog.Warn("Shutdown timeout, forcing exit")
 		case <-errChan:
-			log.Println("Pipeline stopped")
+			slog.Info("Pipeline stopped")
 		}
 	case err := <-errChan:
 		if err != nil && err != context.Canceled {
-			log.Fatalf("Pipeline error: %v", err)
+			slog.Error("Pipeline error", "error", err)
+			os.Exit(1)
 		}
-		log.Println("Pipeline stopped")
+		slog.Info("Pipeline stopped")
 	}
 
-	log.Println("BODS to Loki pipeline shutdown complete")
+	slog.Info("BODS to Loki pipeline shutdown complete")
 }
 
 // getEnv returns the value of an environment variable or a default value if not set

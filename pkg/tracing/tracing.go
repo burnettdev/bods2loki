@@ -2,7 +2,7 @@ package tracing
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/url"
 	"os"
 	"runtime"
@@ -19,7 +19,7 @@ import (
 func InitTracing() (func(), error) {
 	// Check if tracing is enabled
 	if enabled := getEnv("OTEL_TRACING_ENABLED", "false"); !isTrue(enabled) {
-		log.Println("OpenTelemetry tracing is disabled")
+		slog.Debug("OpenTelemetry tracing is disabled")
 		return func() {}, nil
 	}
 
@@ -56,7 +56,7 @@ func InitTracing() (func(), error) {
 	// Create OTLP exporter
 	exporter, err := otlptracehttp.New(context.Background(), opts...)
 	if err != nil {
-		log.Printf("Failed to create OTLP exporter, using noop: %v", err)
+		slog.Warn("Failed to create OTLP exporter, using noop", "error", err)
 		// Return a noop shutdown function if exporter creation fails
 		return func() {}, nil
 	}
@@ -96,7 +96,7 @@ func InitTracing() (func(), error) {
 
 	return func() {
 		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
+			slog.Error("Error shutting down tracer provider", "error", err)
 		}
 	}, nil
 }
@@ -149,7 +149,7 @@ func parseOTLPEndpoint() otlpEndpointConfig {
 	u, err := url.Parse(endpoint)
 	if err != nil {
 		// Fallback to treating as host:port
-		log.Printf("Failed to parse OTLP endpoint URL, using as-is: %v", err)
+		slog.Warn("Failed to parse OTLP endpoint URL, using as-is", "error", err)
 		return otlpEndpointConfig{Host: endpoint, Insecure: true}
 	}
 
