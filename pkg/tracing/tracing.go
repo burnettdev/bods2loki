@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"log"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -22,21 +23,29 @@ func InitTracing() (func(), error) {
 		return func() {}, nil
 	}
 
-	// Get OTLP endpoint from environment variables
-	endpoint := getOTLPEndpoint()
-
-	// Check if connection should be insecure
-	insecure := isTrue(getEnv("OTEL_EXPORTER_OTLP_TRACES_INSECURE", "true"))
+	// Get parsed OTLP endpoint configuration
+	endpointConfig := parseOTLPEndpoint()
 
 	// Parse headers if provided
 	headers := parseHeaders(getEnv("OTEL_EXPORTER_OTLP_TRACES_HEADERS", ""))
 
-	// Create OTLP exporter options
+	// Create OTLP exporter options with properly parsed host
 	opts := []otlptracehttp.Option{
-		otlptracehttp.WithEndpoint(endpoint),
+		otlptracehttp.WithEndpoint(endpointConfig.Host),
 	}
 
-	if insecure {
+	// Add URL path if specified
+	if endpointConfig.Path != "" {
+		opts = append(opts, otlptracehttp.WithURLPath(endpointConfig.Path))
+	}
+
+	// Determine insecure mode: explicit env var takes precedence, else use parsed scheme
+	insecureEnv := getEnv("OTEL_EXPORTER_OTLP_TRACES_INSECURE", "")
+	if insecureEnv != "" {
+		if isTrue(insecureEnv) {
+			opts = append(opts, otlptracehttp.WithInsecure())
+		}
+	} else if endpointConfig.Insecure {
 		opts = append(opts, otlptracehttp.WithInsecure())
 	}
 
@@ -106,24 +115,58 @@ func isTrue(s string) bool {
 	return s == "true" || s == "1" || s == "yes" || s == "on"
 }
 
-// getOTLPEndpoint determines the OTLP endpoint from environment variables
-func getOTLPEndpoint() string {
-	// Check for traces-specific endpoint first
-	if endpoint := getEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""); endpoint != "" {
-		return endpoint
+// otlpEndpointConfig holds parsed OTLP endpoint configuration
+type otlpEndpointConfig struct {
+	Host     string // host:port for WithEndpoint()
+	Path     string // URL path for WithURLPath()
+	Insecure bool   // true for http://, false for https://
+}
+
+// parseOTLPEndpoint parses the OTLP endpoint from environment variables
+// and extracts host, path, and scheme information for proper configuration.
+func parseOTLPEndpoint() otlpEndpointConfig {
+	endpoint := getEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
+	appendTracesPath := false
+
+	if endpoint == "" {
+		endpoint = getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+		appendTracesPath = true
 	}
 
-	// Fall back to general OTLP endpoint with traces path
-	if endpoint := getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""); endpoint != "" {
-		// If it doesn't already have a path, append the traces path
-		if !strings.Contains(endpoint, "/v1/traces") {
-			return endpoint + "/v1/traces"
+	if endpoint == "" {
+		return otlpEndpointConfig{
+			Host:     "localhost:4318",
+			Path:     "",
+			Insecure: true,
 		}
-		return endpoint
 	}
 
-	// Default to localhost
-	return "http://localhost:4318"
+	// Add default scheme if missing (default to https for security)
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "https://" + endpoint
+	}
+
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		// Fallback to treating as host:port
+		log.Printf("Failed to parse OTLP endpoint URL, using as-is: %v", err)
+		return otlpEndpointConfig{Host: endpoint, Insecure: true}
+	}
+
+	path := u.Path
+	if appendTracesPath && !strings.HasSuffix(path, "/v1/traces") {
+		if path == "" || path == "/" {
+			path = "/v1/traces"
+		} else {
+			path = strings.TrimSuffix(path, "/") + "/v1/traces"
+		}
+	}
+
+	return otlpEndpointConfig{
+		Host:     u.Host,
+		Path:     path,
+		Insecure: u.Scheme == "http",
+	}
 }
 
 // parseHeaders parses header string in format "key1=value1,key2=value2"
