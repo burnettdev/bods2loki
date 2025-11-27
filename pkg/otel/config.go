@@ -1,8 +1,10 @@
 package otel
 
 import (
+	"log/slog"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -225,6 +227,7 @@ func isTrue(s string) bool {
 }
 
 // parseHeaders parses header string in format "key1=value1,key2=value2"
+// For Grafana Cloud OTEL: "Authorization=Basic base64credentials"
 func parseHeaders(headerStr string) map[string]string {
 	headers := make(map[string]string)
 	if headerStr == "" {
