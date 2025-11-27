@@ -237,7 +237,7 @@ func (p *Pipeline) handleDryRun(ctx context.Context, data *types.ParsedBusData) 
 		fmt.Printf("Log Line %d: %s\n", i+1, string(vehicleJSON))
 	}
 
-	fmt.Println("=== END DRY RUN ===\n")
+	fmt.Println("=== END DRY RUN ===")
 
 	span.SetAttributes(
 		attribute.Int("vehicles_printed", len(data.VehicleData)),

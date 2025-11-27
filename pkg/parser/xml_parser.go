@@ -178,7 +178,7 @@ func (p *XMLParser) parseVehicleActivity(activity map[string]interface{}) *types
 		vehicle.DestinationAimedArrivalTime = destAimed
 	}
 
-	// Extract location data
+	// Extract location data (including Bearing and Velocity)
 	if location, ok := mvj["VehicleLocation"].(map[string]interface{}); ok {
 		if lng, ok := location["Longitude"].(string); ok {
 			if f, err := parseFloat(lng); err == nil {
@@ -190,6 +190,49 @@ func (p *XMLParser) parseVehicleActivity(activity map[string]interface{}) *types
 				vehicle.Latitude = f
 			}
 		}
+		// Extract bearing (vehicle heading direction in degrees)
+		if bearing, ok := location["Bearing"].(string); ok {
+			if f, err := parseFloat(bearing); err == nil {
+				vehicle.Bearing = f
+			}
+		}
+	}
+
+	// Extract velocity (speed in m/s) - can be at VehicleLocation level or MVJ level
+	if velocity, ok := mvj["Velocity"].(string); ok {
+		if f, err := parseFloat(velocity); err == nil {
+			vehicle.Velocity = f
+		}
+	}
+
+	// Extract occupancy status (full|seatsAvailable|standingAvailable)
+	if occupancy, ok := mvj["Occupancy"].(string); ok {
+		vehicle.Occupancy = occupancy
+	}
+
+	// Extract progress status
+	if progressStatus, ok := mvj["ProgressStatus"].(string); ok {
+		vehicle.ProgressStatus = progressStatus
+	}
+
+	// Extract published line name (customer-facing route name)
+	if publishedLineName, ok := mvj["PublishedLineName"].(string); ok {
+		vehicle.PublishedLineName = publishedLineName
+	}
+
+	// Extract block reference (operational block identifier)
+	if blockRef, ok := mvj["BlockRef"].(string); ok {
+		vehicle.BlockRef = blockRef
+	}
+
+	// Extract MonitoredCall (current/next stop with ETA)
+	if mc, ok := mvj["MonitoredCall"].(map[string]interface{}); ok {
+		vehicle.MonitoredCall = p.parseStopCall(mc)
+	}
+
+	// Extract OnwardCalls (future stops with predictions)
+	if oc, ok := mvj["OnwardCalls"].(map[string]interface{}); ok {
+		vehicle.OnwardCalls = p.parseOnwardCalls(oc)
 	}
 
 	// Generate bus image with line number and direction
@@ -222,6 +265,73 @@ func formatStopName(name string) string {
 	formatted = strings.ReplaceAll(formatted, "_", " ")
 
 	return formatted
+}
+
+// parseStopCall extracts stop call data from a MonitoredCall or OnwardCall element
+func (p *XMLParser) parseStopCall(callData map[string]interface{}) *types.StopCall {
+	call := &types.StopCall{}
+
+	if stopRef, ok := callData["StopPointRef"].(string); ok {
+		call.StopPointRef = stopRef
+	}
+	if stopName, ok := callData["StopPointName"].(string); ok {
+		call.StopPointName = formatStopName(stopName)
+	}
+	if aimed, ok := callData["AimedArrivalTime"].(string); ok {
+		call.AimedArrivalTime = aimed
+	}
+	if expected, ok := callData["ExpectedArrivalTime"].(string); ok {
+		call.ExpectedArrivalTime = expected
+	}
+	if aimed, ok := callData["AimedDepartureTime"].(string); ok {
+		call.AimedDepartureTime = aimed
+	}
+	if expected, ok := callData["ExpectedDepartureTime"].(string); ok {
+		call.ExpectedDepartureTime = expected
+	}
+	if visitNum, ok := callData["VisitNumber"].(string); ok {
+		if n, err := parseInt(visitNum); err == nil {
+			call.VisitNumber = n
+		}
+	}
+
+	// Return nil if no meaningful data was extracted
+	if call.StopPointRef == "" && call.StopPointName == "" {
+		return nil
+	}
+
+	return call
+}
+
+// parseOnwardCalls extracts an array of future stop calls
+func (p *XMLParser) parseOnwardCalls(onwardCallsData map[string]interface{}) []types.StopCall {
+	var calls []types.StopCall
+
+	// OnwardCall can be a single item or an array
+	switch oc := onwardCallsData["OnwardCall"].(type) {
+	case []interface{}:
+		for _, item := range oc {
+			if callMap, ok := item.(map[string]interface{}); ok {
+				if call := p.parseStopCall(callMap); call != nil {
+					calls = append(calls, *call)
+				}
+			}
+		}
+	case map[string]interface{}:
+		if call := p.parseStopCall(oc); call != nil {
+			calls = append(calls, *call)
+		}
+	}
+
+	return calls
+}
+
+// parseInt parses a string to int
+func parseInt(s string) (int, error) {
+	s = strings.TrimSpace(s)
+	var n int
+	_, err := fmt.Sscanf(s, "%d", &n)
+	return n, err
 }
 
 // ToJSON converts ParsedBusData to formatted JSON
