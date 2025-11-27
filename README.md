@@ -28,8 +28,12 @@ LOG_LEVEL=info
 
 # OpenTelemetry Tracing Configuration (Optional)
 OTEL_TRACING_ENABLED=true
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=localhost:4318
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp-gateway.example.com/otlp
 OTEL_TRACES_SAMPLER=always_on
+
+# Pyroscope Profiling Configuration (Optional)
+PYROSCOPE_PROFILING_ENABLED=true
+PYROSCOPE_SERVER_ADDRESS=https://pyroscope.example.com
 ```
 
 ### Authentication Options
@@ -73,12 +77,20 @@ The application supports distributed tracing using OpenTelemetry. This is option
 #### Environment Variables
 
 - `OTEL_TRACING_ENABLED`: Set to `true` or `1` to enable tracing
-- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: OTLP HTTP endpoint for traces (default: `localhost:4318`)
-- `OTEL_EXPORTER_OTLP_ENDPOINT`: Alternative way to set the endpoint (will append `/v1/traces`)
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`: Full OTLP HTTP endpoint URL for traces (e.g., `https://otlp-gateway.grafana.net/otlp`)
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: Alternative way to set the endpoint (will append `/v1/traces` automatically)
 - `OTEL_EXPORTER_OTLP_TRACES_HEADERS`: Headers for trace export (format: `key1=value1,key2=value2`)
-- `OTEL_EXPORTER_OTLP_HEADERS`: Alternative way to set headers
-- `OTEL_EXPORTER_OTLP_TRACES_INSECURE`: Set to `true` for insecure connections
+- `OTEL_EXPORTER_OTLP_TRACES_INSECURE`: Override secure/insecure mode (`true` for HTTP, `false` for HTTPS). If not set, determined automatically from URL scheme.
 - `OTEL_TRACES_SAMPLER`: Sampling strategy (`always_on`, `always_off`, `traceidratio`)
+
+#### URL Format
+
+The endpoint accepts full URLs including scheme and path:
+- `https://otlp-gateway-prod-gb-south-1.grafana.net/otlp` - HTTPS with custom path
+- `http://localhost:4318` - Local development with HTTP
+- `otlp-gateway.example.com/otlp` - Without scheme (defaults to HTTPS)
+
+The URL scheme (`http://` vs `https://`) automatically determines whether to use secure connections unless overridden by `OTEL_EXPORTER_OTLP_TRACES_INSECURE`.
 
 #### Trace Information
 
@@ -162,11 +174,10 @@ docker build -t bods2loki .
 docker run -d \
   --name bods2loki \
   -e BODS_API_KEY=your_bods_api_key_here \
-  -e BODS_DATASET_ID=your_bods_dataset_id \
   -e BODS_LINE_REFS=your_bus_lines_reference_numbers \
   -e BODS_LOKI_URL=http://your-loki-instance \
   -e OTEL_TRACING_ENABLED=true \
-  -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=localhost:4318 \
+  -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318 \
   --restart unless-stopped \
   bods2loki
 ```
@@ -178,18 +189,17 @@ Pull from Github Container Registry:
 docker run -d \
   --name bods2loki \
   -e BODS_API_KEY=your_bods_api_key_here \
-  -e BODS_DATASET_ID=your_bods_dataset_id \
   -e BODS_LINE_REFS=your_bus_lines_reference_numbers \
   -e BODS_LOKI_URL=http://your-loki-instance \
   -e OTEL_TRACING_ENABLED=true \
-  -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=localhost:4318 \
+  -e OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://localhost:4318 \
   --restart unless-stopped \
-  ghcr.io/your-username/bods2loki:latest
+  ghcr.io/burnettdev/bods2loki:main
 ```
 
 ### Docker Compose
 
-For a complete setup with Loki, Grafana, and optional tracing:
+For a complete setup using Docker Compose with environment variables from a `.env` file:
 
 ```bash
 # Copy the example environment file
@@ -201,8 +211,68 @@ nano .env
 # Start the services
 docker-compose up -d
 
+# View logs
+docker-compose logs -f bods2loki
+
 # For dry-run mode (safe for testing)
 docker-compose run --rm bods2loki --dry-run
+```
+
+#### Supported Environment Variables
+
+The `docker-compose.yml` passes the following environment variables from your `.env` file:
+
+**Required:**
+- `BODS_API_KEY` - Your BODS API key
+
+**BODS Configuration:**
+- `BODS_LINE_REFS` - Bus line references (default: `49x`)
+- `BODS_INTERVAL` - Polling interval (default: `30s`)
+
+**Loki Configuration:**
+- `BODS_LOKI_URL` - Loki endpoint (default: `http://loki:3100`)
+- `BODS_LOKI_USER` - Loki username (for Grafana Cloud)
+- `BODS_LOKI_PASSWORD` - Loki password/token (for Grafana Cloud)
+
+**Logging:**
+- `LOG_LEVEL` - Log level (default: `info`)
+
+**OpenTelemetry Tracing:**
+- `OTEL_TRACING_ENABLED` - Enable tracing (default: `false`)
+- `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` - OTLP endpoint URL (default: `http://localhost:4318`)
+- `OTEL_TRACES_SAMPLER` - Sampling strategy (default: `always_on`)
+- `OTEL_EXPORTER_OTLP_TRACES_INSECURE` - Force insecure mode
+- `OTEL_EXPORTER_OTLP_TRACES_HEADERS` - Custom headers (format: `key1=value1,key2=value2`)
+
+**Pyroscope Profiling:**
+- `PYROSCOPE_PROFILING_ENABLED` - Enable profiling (default: `false`)
+- `PYROSCOPE_SERVER_ADDRESS` - Pyroscope server URL (default: `http://localhost:4040`)
+- `PYROSCOPE_APPLICATION_NAME` - Application name (default: `bods2loki`)
+- `PYROSCOPE_BASIC_AUTH_USER` - Basic auth username
+- `PYROSCOPE_BASIC_AUTH_PASSWORD` - Basic auth password
+
+#### Example `.env` for Grafana Cloud
+
+```bash
+# BODS API
+BODS_API_KEY=your_bods_api_key
+BODS_LINE_REFS=49x,7
+
+# Grafana Cloud Loki
+BODS_LOKI_URL=https://logs-prod-gb-south-1.grafana.net
+BODS_LOKI_USER=123456
+BODS_LOKI_PASSWORD=glc_your_token
+
+# Grafana Cloud Tempo (Tracing)
+OTEL_TRACING_ENABLED=true
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://otlp-gateway-prod-gb-south-1.grafana.net/otlp
+OTEL_EXPORTER_OTLP_TRACES_HEADERS=Authorization=Basic base64encodedcreds
+
+# Grafana Cloud Pyroscope (Profiling)
+PYROSCOPE_PROFILING_ENABLED=true
+PYROSCOPE_SERVER_ADDRESS=https://profiles-prod-gb-south-1.grafana.net
+PYROSCOPE_BASIC_AUTH_USER=123456
+PYROSCOPE_BASIC_AUTH_PASSWORD=glc_your_token
 ```
 
 ## Usage
@@ -277,11 +347,11 @@ The application converts BODS XML data to the following JSON structure:
 The application includes comprehensive OpenTelemetry tracing:
 
 - HTTP requests to BODS API
-- XML parsing operations  
+- XML parsing operations
 - Loki data transmission
 - Pipeline processing metrics
 
-Traces are exported to an OTLP endpoint at `http://localhost:4318` by default.
+Traces are exported to an OTLP endpoint (default: `http://localhost:4318`). The endpoint accepts full URLs with scheme and path, e.g., `https://otlp-gateway.grafana.net/otlp`.
 
 ## Loki Labels
 
