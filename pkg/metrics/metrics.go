@@ -127,6 +127,118 @@ func registerRuntimeMetrics() error {
 		return err
 	}
 
+	// Memory metrics - heap allocated
+	_, err = Meter.Int64ObservableGauge(
+		"runtime.go.mem.heap_alloc",
+		metric.WithDescription("Heap memory allocated"),
+		metric.WithUnit("By"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			o.Observe(int64(m.HeapAlloc))
+			return nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Memory metrics - heap in use
+	_, err = Meter.Int64ObservableGauge(
+		"runtime.go.mem.heap_inuse",
+		metric.WithDescription("Heap memory in use"),
+		metric.WithUnit("By"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			o.Observe(int64(m.HeapInuse))
+			return nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Memory metrics - heap sys
+	_, err = Meter.Int64ObservableGauge(
+		"runtime.go.mem.heap_sys",
+		metric.WithDescription("Heap memory obtained from OS"),
+		metric.WithUnit("By"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			o.Observe(int64(m.HeapSys))
+			return nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Memory metrics - stack in use
+	_, err = Meter.Int64ObservableGauge(
+		"runtime.go.mem.stack_inuse",
+		metric.WithDescription("Stack memory in use"),
+		metric.WithUnit("By"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			o.Observe(int64(m.StackInuse))
+			return nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Memory metrics - total sys memory
+	_, err = Meter.Int64ObservableGauge(
+		"runtime.go.mem.sys",
+		metric.WithDescription("Total memory obtained from OS"),
+		metric.WithUnit("By"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			o.Observe(int64(m.Sys))
+			return nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	// GC count
+	_, err = Meter.Int64ObservableCounter(
+		"runtime.go.gc.count",
+		metric.WithDescription("Number of completed GC cycles"),
+		metric.WithUnit("{gc}"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			o.Observe(int64(m.NumGC))
+			return nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
+	// GC pause total
+	_, err = Meter.Int64ObservableCounter(
+		"runtime.go.gc.pause.total",
+		metric.WithDescription("Total GC pause time"),
+		metric.WithUnit("ns"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			o.Observe(int64(m.PauseTotalNs))
+			return nil
+		}),
+	)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
